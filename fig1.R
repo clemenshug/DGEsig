@@ -22,10 +22,17 @@ fig1b <- function() {
         summarize_at( "tau", ~.x[ which.max(abs(.x)) ] ) %>% ungroup() %>%
         mutate_at( c("idQ", "idT"), as.character ) %>%
         mutate_at( "source", toupper ) %>%
-        mutate(drugT = factor(dmap[idT]),
-               drugQ = factor(dmap[idQ],
-                              levels=rev(levels(drugT))))
+        mutate( drugT = dmap[idT], drugQ = dmap[idQ] )
+    
+    ## Perform hierarchical clustering on drugT profiles (columns in the final plot)
+    ## Use DGE slice because it is cleaner and less saturated
+    M <- R2 %>% filter( source == "DGE" ) %>% select( drugT, drugQ, tau ) %>%
+        spread( drugQ, tau ) %>% as.data.frame %>% column_to_rownames("drugT")
+    lvl <- dist(M) %>% hclust %>% dendextend::order.hclust() %>% rownames(M)[.]
 
+    R2 <- R2 %>% mutate(drugT = factor(drugT, lvl),
+                       drugQ = factor(drugQ, rev(lvl)))
+    
     ## Plotting elements
     pal <- rev(RColorBrewer::brewer.pal(n=7, name="RdBu"))
     etxt <- function(s, ...) {element_text( size = s, face = "bold", ... )}
