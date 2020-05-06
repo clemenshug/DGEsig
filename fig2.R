@@ -1,21 +1,22 @@
 library( tidyverse )
 library( ggrepel )
+library( ggbeeswarm )
 
 pathData <- "~/data/DGEsig"
 
 ## Cell line metadata
 CM <- tribble(
-    ~short,    ~tissue,    ~subtype,
-    "A375",   "skin",     "melanoma",
-    "A549",   "lung",     "adeno",
-    "HA1E",   "kindey",   "normal",
-    "HCC515", "lung",     "adeno",
-    "HepG2",  "liver",    "hcc",
-    "HT29",   "colon",    "adeno",
-    "MCF-7",  "breast",   "lumA",
-    "PC3",    "prostate", "small cell",
-    "VCaP",   "prostate", "AR-V7" ) %>%
-    mutate( Cell = glue::glue("{short} ({tissue}/{subtype})") )
+    ~Short,    ~Tissue,    ~Subtype,
+    "A375",   "Skin",     "melanoma",
+    "A549",   "Lung",     "adeno",
+    "HA1E",   "Kindey",   "normal",
+    "HCC515", "Lung",     "adeno",
+    "HepG2",  "Liver",    "hcc",
+    "HT29",   "Colon",    "adeno",
+    "MCF-7",  "Breast",   "lumA",
+    "PC3",    "Prostate", "small cell",
+    "VCaP",   "Prostate", "AR-V7" ) %>%
+    mutate( Label = glue::glue("{Short} ({Tissue}/{Subtype})") )
 
 ## Dictionary for cell name standardization
 cndict <- c(a375 = "A375", a549 = "A549", ha1e = "HA1E", hcc515 = "HCC515",
@@ -36,16 +37,19 @@ S1 <- R %>% filter(idT == idQ) %>%
     mutate(drugQ = str_split(gene_set, "_") %>%
                map_chr(pluck, 5) %>% str_to_lower,
            gene_set = NULL) %>%
-    inner_join( CM, by = c("cellT"="short") ) %>%
-    mutate_at( c("drugQ","Cell"), factor ) %>%
-    rename( Tau = tau )
+    inner_join( CM, by = c("cellT"="Short") ) %>%
+    mutate_at( c("drugQ","Label"), factor ) %>%
+    rename( Tau = tau ) %>%
+    mutate_at(c("drugT","drugQ"), recode,
+              alvocidib    = "alvocidib (R1)",
+              flavopiridol = "alvocidib (R2)")
 
 ## Split by tau interval
-SS1 <- S1 %>% mutate( region = fct_rev(cut(Tau, breaks=c(-100, -1, 25, 50, 95, 100))) ) %>%
+SS1 <- S1 %>% mutate( region = fct_rev(cut(Tau, breaks=c(-100, 95, 100))) ) %>%
     split(.$region)
 
 ## Plotting elements
-pal <- set_names( c("black", ggthemes::few_pal()(8)), unique(S1$Cell) )
+pal <- set_names( ggthemes::few_pal()(7), unique(S1$Tissue) )
 etxt <- function(s, ...) {element_text( size = s, face = "bold", ... )}
 theme_bold <- function() {
     theme(axis.text = etxt(12), axis.title = etxt(14),
@@ -53,37 +57,33 @@ theme_bold <- function() {
 }
 
 ## Additional parameters for each plot
-pparam <- list(list(ybr = waiver(),    keepx=FALSE, keepy=FALSE, minor=TRUE),
-               list(ybr = c(80,82,84), keepx=FALSE, keepy=TRUE,  minor=FALSE),
-               list(ybr = c(34,39,44), keepx=FALSE, keepy=FALSE, minor=TRUE),
-               list(ybr = 0,           keepx=FALSE, keepy=FALSE, minor=TRUE),
-               list(ybr = -80.8,       keepx=TRUE,  keepy=FALSE, minor=TRUE)
-               )
-
-fplot <- function( .df, lparam ) {
-    gg <- ggplot(.df, aes(x=drugQ, y=Tau, color=Cell)) + 
-        geom_point() + theme_bw() + theme_bold() +
+fplot <- function( .df, isTop ) {
+    gg <- ggplot(.df, aes(x=drugQ, y=Tau, color=Tissue, group=drugQ)) + 
+        theme_bw() + theme_bold() +
+        geom_beeswarm(cex=3, beeswarmArgs=list(side=-1)) +
+        geom_vline(xintercept=c(1.7,2.7), color="lightgray") +
         scale_color_manual( values=pal, drop=FALSE ) +
-        scale_x_discrete( drop=FALSE, name="Query Signature" ) +
-        scale_y_continuous( breaks = lparam$ybr ) +
-        geom_text_repel(aes(label=cellT), show.legend=FALSE, fontface="bold")
+        scale_x_discrete( drop=FALSE, expand=expansion(add=c(0.3,0.6)),
+                         name="3' DGE Query Signature" ) +
+        geom_text_repel(aes(label=cellT), show.legend=FALSE,
+                        fontface="bold", nudge_x = 0.3,
+                        direction="y", segment.color=NA ) +
+        theme(panel.grid.minor = element_blank(),
+              panel.grid.major.x = element_blank())
 
-    if( lparam$keepx == FALSE )
+    if( isTop == TRUE )
         gg <- gg + theme(axis.title.x = element_blank(),
-                         axis.text.x = element_blank())
-
-    if( lparam$keepy == FALSE )
-        gg <- gg + theme(axis.title.y = element_blank()) +
+                         axis.ticks.x = element_blank(),
+                         axis.text.x = element_blank(),
+                         legend.position="top")
+    else
+        gg <- gg + theme(axis.text.x = element_text(hjust=0.3)) +
             guides( color=FALSE )
-
-    if( lparam$minor == FALSE )
-        gg <- gg + theme(panel.grid.minor = element_blank())
-        
     gg
 }
 
-ggs <- map2( SS1, pparam, fplot )
-ggcomp <- egg::ggarrange( plots=ggs, ncol=1, heights=c(0.5,0.2,0.2,0.1,0.1) )
-ggsave("fig2.pdf", ggcomp, width=8, height=9)
-ggsave("fig2.png", ggcomp, width=8, height=9)
+ggs <- map2( SS1, c(TRUE,FALSE), fplot )
+ggcomp <- egg::ggarrange( plots=ggs, ncol=1, heights=c(0.5,0.5), draw=FALSE )
+ggsave("fig2.pdf", ggcomp, width=6, height=9)
+ggsave("fig2.png", ggcomp, width=6, height=9)
 
