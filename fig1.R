@@ -28,7 +28,7 @@ R2 <- R %>% filter(idT %in% names(dmap), idQ %in% names(dmap)) %>%
 ## Use the DGE slice because it is cleaner and less saturated
 DM <- R2 %>% filter( source == "DGE" ) %>% select( drugT, drugQ, tau ) %>%
     spread( drugQ, tau ) %>% as.data.frame %>% column_to_rownames("drugT") %>% dist
-lvl <- hclust(DM) %>% reorder(DM) %>%  dendextend::order.hclust() %>% labels(DM)[.]
+lvl <- hclust(DM) %>% reorder(DM) %>% dendextend::order.hclust() %>% labels(DM)[.]
 
 ## Fix the order via factor levels
 R2 <- R2 %>% mutate(drugT = factor(drugT, lvl),
