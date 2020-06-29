@@ -4,8 +4,7 @@ synapser::synLogin()
 dloc <- "~/data/DGEsig"
 syn <- synExtra::synDownloader(dloc, ifcollision="overwrite.local")
 
-compound_name_map <- synapser::synGet("syn21586544", downloadLocation=dloc,
-                                      ifcollision="overwrite.local", version = 1)
+compound_name_map <- syn("syn21586544")
 
 cmap_gene_meta    <- syn("syn21547102")
 clue_res_dge      <- syn("syn21907139")
