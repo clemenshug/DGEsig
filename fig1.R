@@ -3,6 +3,10 @@ library( seriation )   # For optimal leaf reordering
 
 pathData <- "~/data/DGEsig"
 
+synapser::synLogin()
+syn <- synExtra::synDownloader(pathData, ifcollision="overwrite.local")
+
+
 ## Load all results
 R <- file.path(pathData, "clue_results_combined.rds") %>% read_rds() %>%
     filter( result_type == "pert", score_level == "summary" ) %>%
@@ -37,18 +41,22 @@ dmap <- R %>% select( idT, drugT ) %>% filter( idT %in% qcom ) %>%
 ## Isolate the appropriate slice of data
 ## Aggregate across multiple entries to compute master similarity score
 R2 <- R %>% filter(idT %in% names(dmap), idQ %in% names(dmap)) %>%
-    select( idQ, idT, tau, source, z_score_cutoff, query_type ) %>%
+    select( idQ, idT, tau, source, z_score_cutoff, query_type, cell_id_query ) %>%
     group_by( idQ, idT, source, z_score_cutoff, query_type ) %>%
-    summarize_at( "tau", ~.x[ which.max(abs(.x)) ] ) %>% ungroup() %>%
+    summarize(
+        "tau" = tau[ which.max(abs(tau)) ],
+        cell_id_query = list(unique(cell_id_query))
+    ) %>%
+    ungroup() %>%
     mutate_at( c("idQ", "idT"), as.character ) %>%
     mutate_at( "source", toupper ) %>%
-    mutate( drugT = dmap[idT], drugQ = dmap[idQ] ) %>%
-    nest_join(
-        transmute(M_cell_info, lspci_id = as.character(lspci_id), cells) %>%
-            distinct(),
-        by = c("idQ" = "lspci_id"),
-        name = "cells"
-    )
+    mutate( drugT = dmap[idT], drugQ = dmap[idQ] )
+    # nest_join(
+    #     transmute(M_cell_info, lspci_id = as.character(lspci_id), cells) %>%
+    #         distinct(),
+    #     by = c("idQ" = "lspci_id"),
+    #     name = "cells"
+    # )
 
 ## Perform hierarchical clustering on drugT profiles (columns in the final plot)
 ## Use the DGE slice because it is cleaner and less saturated
@@ -100,7 +108,31 @@ composite_plot <- function(X) {
 
     ## L1000 plot
     gg2 <- fplot( filter(X, source == "L1000") ) +
-        ylab( "L1000 Query" )
+        ylab( "L1000 Query" ) +
+        scale_fill_gradientn( colors=pal, name="Tau", limits=c(-100,100) ) +
+        theme(legend.position = "bottom")
+
+    cell_plot <- X %>%
+        distinct(drugQ, cell_id_query) %>%
+        # unchop(cell_id_query) %>%
+        mutate(
+            cell_id_query = map_chr(
+                cell_id_query,
+                ~if (is.null(.x) || length(.x) == 1) .x %||% "" else "multiple"
+            )
+        ) %>%
+        drop_na() %>%
+        ggplot(aes(drugQ, fill = cell_id_query)) +
+            geom_bar() +
+            coord_flip() +
+            theme_minimal() + theme_bold() +
+            scale_fill_brewer(palette = "Set2", name = "Query cell line") +
+            theme(
+                # axis.ticks.y = element_blank(), axis.text.y = element_blank(),
+                # axis.title.y = element_blank(), axis.title.x = element_blank(),
+                axis.title = element_blank(), axis.ticks = element_blank(),
+                axis.text.x = element_blank(), axis.text.y = element_blank()
+            )
 
     ## Summary plot
     S <- X %>% filter(idQ == idT) %>%
@@ -109,11 +141,11 @@ composite_plot <- function(X) {
     ggs <- ggplot( S, aes(x=drugT, y=source, fill=tau) ) +
         theme_minimal() + theme_bold() +
         geom_tile(color="black") + ylab("") +
-        scale_fill_gradientn( colors=pal, name="Tau", limits=c(-100,100) ) +
+        scale_fill_gradientn( colors=pal, guide=FALSE, limits=c(-100,100) ) +
         theme(axis.text.x = element_blank(), axis.title.x = element_blank())
 
     ## Create the composite plot
-    egg::ggarrange( gg1, ggs, gg2, heights=c(6.5,0.5,6.5), draw=FALSE )
+    egg::ggarrange( gg1, cell_plot, ggs, egg::.dummy_ggplot, gg2, egg::.dummy_ggplot, heights=c(6.5,0.5,7.5), widths = c(6.5, 0.3), draw=FALSE )
 }
 
 ggcomp <- R2_completed %>%
@@ -128,19 +160,19 @@ ggcomp <- R2_completed %>%
             map(composite_plot)
     )
 
-ggcomp2 <- gridExtra::arrangeGrob(
-    grobs = map2(
-        ggcomp$data, ggcomp$z_score_cutoff,
-        ~gridExtra::arrangeGrob(.x, top = paste0("z-cutoff ", .y * 100, "%"))
-    ),
-    # set_names( ggcomp$data, ggcomp$z_score_cutoff ),
-    nrow = 1
-)
+# ggcomp <- gridExtra::arrangeGrob(
+#     grobs = map2(
+#         ggcomp$data, ggcomp$z_score_cutoff,
+#         ~gridExtra::arrangeGrob(.x, top = paste0("z-cutoff ", .y * 100, "%"))
+#     ),
+#     # set_names( ggcomp$data, ggcomp$z_score_cutoff ),
+#     nrow = 1
+# )
 
 pwalk(
     ggcomp,
     function(z_score_cutoff, query_type, data, ...) {
-        walk( paste0("fig1_", z_score_cutoff, "_", query_type, c(".png", ".pdf")), ggsave, data, width=7, height=12 )
+        walk( paste0("fig1_", z_score_cutoff, "_", query_type, c(".png", ".pdf")), ggsave, data, width=8, height=13 )
     }
 )
 
