@@ -1,89 +1,79 @@
 library( tidyverse )
-library( ggrepel )
-library( ggbeeswarm )
+library( seriation )   # For optimal leaf reordering
 
 pathData <- "~/data/DGEsig"
 
-## Cell line metadata
-CM <- tribble(
-    ~Short,    ~Tissue,    ~Subtype,
-    "A375",   "Skin",     "melanoma",
-    "A549",   "Lung",     "adeno",
-    "HA1E",   "Kindey",   "normal",
-    "HCC515", "Lung",     "adeno",
-    "HepG2",  "Liver",    "hcc",
-    "HT29",   "Colon",    "adeno",
-    "MCF-7",  "Breast",   "lumA",
-    "PC3",    "Prostate", "small cell",
-    "VCaP",   "Prostate", "AR-V7" ) %>%
-    mutate( Label = glue::glue("{Short} ({Tissue}/{Subtype})") )
+## Load all results
+R <- file.path(pathData, "clue_results_combined.rds") %>% read_rds() %>%
+    filter( result_type == "pert", score_level == "summary" ) %>%
+    pluck( "data", 1 ) %>%
+    rename(idQ = lspci_id_query, idT = lspci_id_target, drugT = pert_iname)
 
-## Dictionary for cell name standardization
-cndict <- c(a375 = "A375", a549 = "A549", ha1e = "HA1E", hcc515 = "HCC515",
-            hepg2 = "HepG2", ht29 = "HT29", mcf7 = "MCF-7", pc3 = "PC3", vcap = "VCaP")
+## Identify the common set of drugs between DGE-query, L1000-query and targets
+qcom <- R %>% group_by( source ) %>% summarize_at( "idQ", list ) %>%
+    with( lift(intersect)(idQ) )
+dmap <- R %>% select( idT, drugT ) %>% filter( idT %in% qcom ) %>%
+    distinct() %>% with( set_names(drugT,idT) )
 
-## Isolate the relevant data chunk
-R0 <- file.path(pathData, "clue_results_dge.rds") %>% read_rds() %>%
-    pluck( "data", 3 )
+## Isolate the appropriate slice of data
+## Aggregate across multiple entries to compute master similarity score
+R2 <- R %>% filter(idT %in% names(dmap), idQ %in% names(dmap)) %>%
+    select( idQ, idT, tau, source ) %>% group_by( idQ, idT, source ) %>%
+    summarize_at( "tau", ~.x[ which.max(abs(.x)) ] ) %>% ungroup() %>%
+    mutate_at( c("idQ", "idT"), as.character ) %>%
+    mutate_at( "source", toupper ) %>%
+    mutate( drugT = dmap[idT], drugQ = dmap[idQ] )
 
-R <- R0 %>% filter( pert_type == "trt_cp", grepl("MCF7", gene_set) ) %>%
-    select(cellT = cell_id_target, drugT = pert_iname, tau, gene_set,
-           idT = lspci_id_target, idQ = lspci_id_query) %>%
-    filter( !is.na(idQ), !is.na(idT) ) %>%
-    mutate_at( "cellT", recode, !!!cndict )
+## Perform hierarchical clustering on drugT profiles (columns in the final plot)
+## Use the DGE slice because it is cleaner and less saturated
+DM <- R2 %>% filter( source == "DGE" ) %>% select( drugT, drugQ, tau ) %>%
+    spread( drugQ, tau ) %>% as.data.frame %>% column_to_rownames("drugT") %>% dist
+lvl <- hclust(DM) %>% reorder(DM) %>% dendextend::order.hclust() %>% labels(DM)[.]
 
-## MCF7 @ Alvocidib / Flavopiridol / Palbo
-S1 <- R %>% filter(idT == idQ) %>%
-    mutate(drugQ = str_split(gene_set, "_") %>%
-               map_chr(pluck, 5) %>% str_to_lower,
-           gene_set = NULL) %>%
-    inner_join( CM, by = c("cellT"="Short") ) %>%
-    mutate_at( c("drugQ","Label"), factor ) %>%
-    rename( Tau = tau ) %>%
-    mutate_at(c("drugT","drugQ"), recode,
-              alvocidib    = "alvocidib (R1)",
-              flavopiridol = "alvocidib (R2)")
-
-## Split by tau interval
-SS1 <- S1 %>% mutate( region = fct_rev(cut(Tau, breaks=c(-100, 95, 100))) ) %>%
-    split(.$region)
+## Fix the order via factor levels
+R2 <- R2 %>% mutate(drugT = factor(drugT, lvl),
+                    drugQ = factor(drugQ, rev(lvl)))
 
 ## Plotting elements
-pal <- set_names( ggthemes::few_pal()(7), unique(S1$Tissue) )
+pal <- rev(RColorBrewer::brewer.pal(n=7, name="RdBu"))
 etxt <- function(s, ...) {element_text( size = s, face = "bold", ... )}
 theme_bold <- function() {
-    theme(axis.text = etxt(12), axis.title = etxt(14),
+    theme(axis.text.x = etxt(12, angle=90, hjust=1, vjust=0.5),
+          axis.text.y = etxt(12), axis.title = etxt(14),
           legend.text = etxt(12), legend.title = etxt(14))
 }
 
-## Additional parameters for each plot
-fplot <- function( .df, isTop ) {
-    gg <- ggplot(.df, aes(x=drugQ, y=Tau, color=Tissue, group=drugQ)) + 
-        theme_bw() + theme_bold() +
-        geom_beeswarm(cex=3, beeswarmArgs=list(side=-1)) +
-        geom_vline(xintercept=c(1.7,2.7), color="lightgray") +
-        scale_color_manual( values=pal, drop=FALSE ) +
-        scale_x_discrete( drop=FALSE, expand=expansion(add=c(0.3,0.6)),
-                         name="3' DGE Query Signature" ) +
-        geom_text_repel(aes(label=cellT), show.legend=FALSE,
-                        fontface="bold", nudge_x = 0.3,
-                        direction="y", segment.color=NA ) +
-        theme(panel.grid.minor = element_blank(),
-              panel.grid.major.x = element_blank())
-
-    if( isTop == TRUE )
-        gg <- gg + theme(axis.title.x = element_blank(),
-                         axis.ticks.x = element_blank(),
-                         axis.text.x = element_blank(),
-                         legend.position="top")
-    else
-        gg <- gg + theme(axis.text.x = element_text(hjust=0.3)) +
-            guides( color=FALSE )
-    gg
+## Plotting a heatmap of clue hits
+fplot <- function(X) {
+    ggplot( X, aes(x=drugT, y=drugQ, fill=tau) ) +
+        theme_minimal() + theme_bold() +
+        geom_tile(color="black") +
+        geom_tile(data=filter(X, idQ==idT), color="black", size=1) +
+        scale_fill_gradientn( colors=pal, guide=FALSE, limits=c(-100,100) ) +
+        xlab( "Clue Target" )
 }
 
-ggs <- map2( SS1, c(TRUE,FALSE), fplot )
-ggcomp <- egg::ggarrange( plots=ggs, ncol=1, heights=c(0.5,0.5), draw=FALSE )
-ggsave("fig2.pdf", ggcomp, width=6, height=9)
-ggsave("fig2.png", ggcomp, width=6, height=9)
+## DGE plot
+gg1 <- fplot( filter(R2, source == "DGE") ) +
+    scale_x_discrete(position = "top") +
+    theme(axis.title.x = element_blank(),
+          axis.text.x = element_text(hjust=0, vjust=0.5)) +
+    ylab( "DGE Query" )
 
+## L1000 plot
+gg2 <- fplot( filter(R2, source == "L1000") ) +
+    ylab( "L1000 Query" )
+
+## Summary plot
+S <- R2 %>% filter(idQ == idT) %>%
+    mutate_at("source", factor, levels=c("L1000","DGE")) %>%
+    mutate_at("source", fct_recode, `Self (DGE)`="DGE", `Self (L1000)`="L1000")
+ggs <- ggplot( S, aes(x=drugT, y=source, fill=tau) ) +
+    theme_minimal() + theme_bold() +
+    geom_tile(color="black") + ylab("") +
+    scale_fill_gradientn( colors=pal, name="Tau", limits=c(-100,100) ) +
+    theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+
+## Create the composite plot
+ggcomp <- egg::ggarrange( gg1, ggs, gg2, heights=c(6.5,1,6.5) )
+walk( c("fig1.pdf", "fig1.png"), ggsave, ggcomp, width=7, height=12 )
