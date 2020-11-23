@@ -84,6 +84,6 @@ fplot <- function( .df, isTop ) {
 
 ggs <- map2( SS1, c(TRUE,FALSE), fplot )
 ggcomp <- egg::ggarrange( plots=ggs, ncol=1, heights=c(0.5,0.5), draw=FALSE )
-ggsave("fig2.pdf", ggcomp, width=6, height=9)
-ggsave("fig2.png", ggcomp, width=6, height=9)
+ggsave("fig3.pdf", ggcomp, width=6, height=9)
+ggsave("fig3.png", ggcomp, width=6, height=9)
 

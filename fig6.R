@@ -80,8 +80,8 @@ simplot <- function( .df )
 }
 
 ggtau  <- simorder( SM, TauSim )  %>% simplot() %>%
-    + ggsave( "fig5a.pdf", width=8.5, height=7.75 ) %>%
-    + ggsave( "fig5a.png", width=8.5, height=7.75 )
+    + ggsave( "fig6a.pdf", width=8.5, height=7.75 ) %>%
+    + ggsave( "fig6a.png", width=8.5, height=7.75 )
 ggjcrd <- simorder( SM, JcrdSim ) %>% simplot() %>%
-    + ggsave( "fig5b.pdf", width=8.5, height=7.75 ) %>%
-    + ggsave( "fig5b.png", width=8.5, height=7.75 )
+    + ggsave( "fig6b.pdf", width=8.5, height=7.75 ) %>%
+    + ggsave( "fig6b.png", width=8.5, height=7.75 )

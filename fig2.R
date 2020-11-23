@@ -76,4 +76,4 @@ ggs <- ggplot( S, aes(x=drugT, y=source, fill=tau) ) +
 
 ## Create the composite plot
 ggcomp <- egg::ggarrange( gg1, ggs, gg2, heights=c(6.5,1,6.5) )
-walk( c("fig1.pdf", "fig1.png"), ggsave, ggcomp, width=7, height=12 )
+walk( c("fig2.pdf", "fig2.png"), ggsave, ggcomp, width=7, height=12 )
