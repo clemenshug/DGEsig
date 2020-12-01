@@ -1,5 +1,6 @@
 library( tidyverse )
 library( seriation )   # For optimal leaf reordering
+library( cowplot )
 
 pathData <- "~/data/DGEsig"
 
@@ -74,14 +75,43 @@ simplot <- function( .df )
         theme_minimal() +
         geom_tile(color="gray") +
         scale_fill_gradientn( colors=pal, limits=c(-1,1) ) +
-        theme(axis.text.x = etxt(10, angle=90, hjust=1, vjust=0.5),
-              axis.text.y = etxt(10), axis.title=ebl(),
-              legend.text = etxt(12), legend.title=etxt(14))
+        theme(axis.text = ebl(),
+              axis.title=ebl(),
+              legend.text = etxt(12), legend.title=etxt(14),
+              plot.margin = unit(c(0.5,0.5,0.5,2), "cm"))
 }
 
-ggtau  <- simorder( SM, TauSim )  %>% simplot() %>%
-    + ggsave( "fig6a.pdf", width=8.5, height=7.75 ) %>%
-    + ggsave( "fig6a.png", width=8.5, height=7.75 )
-ggjcrd <- simorder( SM, JcrdSim ) %>% simplot() %>%
-    + ggsave( "fig6b.pdf", width=8.5, height=7.75 ) %>%
-    + ggsave( "fig6b.png", width=8.5, height=7.75 )
+## Compose similarity matrices
+XTau <- simorder( SM, TauSim )
+XJcrd <- simorder( SM, JcrdSim ) %>%
+    mutate(across(DrugID1, fct_relevel, levels(XTau$DrugID1)),
+           across(DrugID2, fct_relevel, levels(XTau$DrugID2)))
+ndg <- length(unique(SM$DrugID2))
+
+## Plot a zoom facet
+dnm <- set_names(c("bortezomib", "mg132", "fedratinib", "staurosp. agl.", "nilotinib"),
+                 c("57736", "36292", "97896", "14772", "100531"))
+X <- simorder( SM, TauSim ) %>%
+    filter( DrugID1 %in% names(dnm), DrugID2 %in% names(dnm) ) 
+ggz <- ggplot( X, aes(DrugID1, DrugID2, fill=Similarity) ) +
+    theme_minimal() + geom_tile(color="gray") +
+    scale_fill_gradientn( colors=pal, limits=c(-1,1), guide=FALSE ) +
+    scale_y_discrete( labels = function(x) dnm[x] ) +
+    theme(axis.title=ebl(), axis.text.x=ebl(), axis.ticks.x=ebl(),
+          axis.text.y=etxt(12), plot.background=element_rect(color="black", size=2),
+          panel.grid.minor=ebl(), panel.grid.major=ebl())
+
+## Plot similarity matrices
+ggjcrd <- simplot(XJcrd) %>% + guides( fill=FALSE )
+ggtau  <- simplot(XTau) %>%
+    + geom_rect(aes(xmin=8.5, xmax=13.5, ymin=ndg-8.5+1, ymax=ndg-13.5+1),
+                fill=NA, color="black", size=1)
+
+## Put everything together
+gg <- egg::ggarrange( plots=list(ggjcrd, ggtau), ncol=2,
+                     labels=c(" A"," B"), padding=unit(2,"line"),
+                     label.args = list(gp = grid::gpar(font = 4, cex = 4)) ) %>%
+    ggdraw() %>%
+    + draw_plot( ggz, .65, .7, .17, .25 )
+ggsave( "fig6.pdf", gg, width=17, height=7 )
+ggsave( "fig6.png", gg, width=17, height=7 )
