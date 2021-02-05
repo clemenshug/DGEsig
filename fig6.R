@@ -64,7 +64,8 @@ simorder <- function( .df, .sim )
 }
 
 ## Plotting elements
-pal <- rev(RColorBrewer::brewer.pal(n=7, name="RdBu"))
+pal  <- rev(RColorBrewer::brewer.pal(n=7, name="RdBu"))
+palj <- gray.colors(7, start=1, end=0)
 ebl <- element_blank
 etxt <- function(s, ...) {element_text( size = s, face = "bold", ... )}
 
@@ -74,7 +75,6 @@ simplot <- function( .df )
     ggplot( .df, aes(DrugID1, DrugID2, fill=Similarity) ) +
         theme_minimal() +
         geom_tile(color="gray") +
-        scale_fill_gradientn( colors=pal, limits=c(-1,1) ) +
         geom_rect(aes(xmin=8.5, xmax=13.5, ymin=ndg-8.5+1, ymax=ndg-13.5+1),
                   fill=NA, color="black", size=1) +
         theme(axis.text = ebl(),
@@ -88,7 +88,6 @@ zoomplot <- function( .df )
 {
     ggplot( .df, aes(DrugID1, DrugID2, fill=Similarity) ) +
         theme_minimal() + geom_tile(color="gray") +
-        scale_fill_gradientn( colors=pal, limits=c(-1,1), guide=FALSE ) +
         scale_y_discrete( labels = function(x) dnm[x] ) +
         theme(axis.title=ebl(), axis.text.x=ebl(), axis.ticks.x=ebl(),
               axis.text.y=etxt(12), plot.background=element_rect(color="black", size=2),
@@ -109,15 +108,19 @@ ZTau <- XTau %>% filter( DrugID1 %in% names(dnm), DrugID2 %in% names(dnm) )
 ZJcrd <- XJcrd %>% filter( DrugID1 %in% names(dnm), DrugID2 %in% names(dnm) )
 
 ## Plot similarity matrices
-ggjcrd <- simplot(XJcrd) %>% + guides( fill=FALSE )
-ggtau  <- simplot(XTau)
+ggjcrd <- simplot(XJcrd) + scale_fill_gradientn( colors=palj, limits=c(0,1), name="Jaccard\nSimilarity" )
+ggtau  <- simplot(XTau)  + scale_fill_gradientn( colors=pal, limits=c(-1,1), name="Pearson\nCorrelation" )
+
+## Plot zoom facets
+gzjcrd <- zoomplot(ZJcrd) + scale_fill_gradientn( colors=palj, limits=c(0,1), guide=FALSE )
+gztau  <- zoomplot(ZTau)  + scale_fill_gradientn( colors=pal, limits=c(-1,1), guide=FALSE )
 
 ## Put everything together
 gg <- egg::ggarrange( plots=list(ggjcrd, ggtau), ncol=2,
                      labels=c(" A"," B"), padding=unit(2,"line"),
                      label.args = list(gp = grid::gpar(font = 4, cex = 4)) ) %>%
     ggdraw() %>%
-    + draw_plot( zoomplot(ZTau), .65, .7, .17, .25 ) %>%
-    + draw_plot( zoomplot(ZJcrd), .18, .7, .17, .25 )
+    + draw_plot( gztau, .68, .7, .17, .25 ) %>%
+    + draw_plot( gzjcrd, .18, .7, .17, .25 )
 ggsave( "fig6.pdf", gg, width=17, height=7 )
 ggsave( "fig6.png", gg, width=17, height=7 )
