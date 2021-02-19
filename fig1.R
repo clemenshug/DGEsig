@@ -184,6 +184,98 @@ pwalk(
 
 walk( c("fig1.pdf", "fig1.png"), ggsave, ggcomp2, width=28, height=12 )
 
+# Test if self-similarity is significantly higher than other similarities
+
+wilcox_self_similarities <- R2 %>%
+    filter(query_type == "aggregated", is.na(z_score_cutoff) | z_score_cutoff == 0.7) %>%
+    group_by(source, idQ, drugQ) %>%
+    summarize(
+        wilcox = wilcox.test(
+            tau[idQ != idT],
+            mu = tau[idQ == idT],
+            alternative = "less"
+        ) %>%
+            list(),
+        .groups = "drop"
+    ) %>%
+    mutate(
+        p.value = map_dbl(wilcox, "p.value")
+    )
+
+library(ggbeeswarm)
+
+self_similarity_beeswarm <- R2 %>%
+    filter(query_type == "aggregated", is.na(z_score_cutoff) | z_score_cutoff == 0.7) %>%
+    mutate(
+        self_similarity = if_else(
+            idQ == idT,
+            "self_similarity",
+            "cross_similarity"
+        ) %>%
+            fct_relevel("cross_similarity")
+    ) %>%
+    arrange(self_similarity) %>%
+        ggplot(
+            aes(tau, drugQ, color = self_similarity)
+        ) +
+        geom_quasirandom(
+            data = ~filter(.x, self_similarity == "cross_similarity"),
+            groupOnX = FALSE
+        ) +
+        geom_point(
+            data = ~filter(.x, self_similarity == "self_similarity")
+        ) +
+        facet_wrap(~source, nrow = 1) +
+        scale_color_manual(
+            values = c(
+                self_similarity = "#FF0000",
+                cross_similarity = "#00000088"
+            ),
+            guide = FALSE
+        )
+
+dir.create("self_similarity")
+ggsave(
+    file.path("self_similarity", "self_similarity_beeswarm.pdf"),
+    self_similarity_beeswarm,
+    width = 5, height = 10
+)
+
+self_similarity_stats <- R2 %>%
+    filter(query_type == "aggregated", is.na(z_score_cutoff) | z_score_cutoff == 0.7) %>%
+    group_by(source, idQ, drugQ) %>%
+    summarize(
+        n_greater = sum(
+            tau[idQ != idT] > tau[idQ == idT]
+        ),
+        .groups = "drop"
+    )
+
+wilcox_self_similarities_col_plot <- wilcox_self_similarities %>%
+    mutate(log_p = -log10(p.value)) %>%
+    ggplot(aes(x = log_p, y = drugQ, fill = source)) +
+    geom_col() +
+    facet_wrap(~source, nrow = 1) +
+    guides(fill = FALSE)
+
+ggsave(
+    file.path("self_similarity", "wilcox_cols.pdf"),
+    wilcox_self_similarities_col_plot,
+    width = 4, height = 8
+)
+
+wilcox_self_similarities_scatterplot <- wilcox_self_similarities %>%
+    mutate(log_p = -log10(p.value)) %>%
+    select(idQ, source, p.value) %>%
+    spread(source, p.value) %>%
+    ggplot(aes(x = DGE, y = L1000)) +
+    geom_point() +
+    scale_x_log10() +
+    scale_y_log10() +
+    coord_equal()
+
+
+
 # Plot TAS vector similarity
 
 # Use old version of TAS vectors that matches used lspci_ids
@@ -265,7 +357,7 @@ tas_similarity_plot <- ggplot( all_similarity, aes(x=name_1, y=name_2, fill=tas_
 dir.create("tas_similarity")
 ggsave(
     file.path("tas_similarity", "tas_similarity_heatmap.pdf"),
-    width = 6.5, height = 6.5
+    width = 8, height = 6
 )
 
 ## Query by cell-line
