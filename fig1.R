@@ -7,6 +7,23 @@ pathData <- "~/data/DGEsig"
 synapser::synLogin()
 syn <- synExtra::synDownloader(pathData, ifcollision="overwrite.local")
 
+rdbu_colormap <- RColorBrewer::brewer.pal(5, "RdBu")
+
+cmap_nonlinear_colormap <- list(
+    colors = c(
+        rdbu_colormap[1:3],
+        rdbu_colormap[3:5]
+    ) %>%
+        rev(),
+    values = scales::rescale(c(-100, -90, -80, 80, 90, 100), from = c(-100, 100))
+)
+# scales::gradient_n_pal(
+#     c(
+#         rdbu_colormap[1:3],
+#         rdbu_colormap[3:5]
+#     ),
+#     scales::rescale(c(-100, -90, -80, 80, 90, 100), from = c(-100, 100))
+# )
 
 ## Load all results
 R <- synapser::synGet("syn21907166", version = 5, ifcollision = "overwrite.local") %>%
@@ -100,7 +117,8 @@ fplot <- function(X) {
         theme_minimal() + theme_bold() +
         geom_tile(color="black") +
         geom_tile(data=filter(X, idQ==idT), color="black", size=1) +
-        scale_fill_gradientn( colors=pal, guide=FALSE, limits=c(-100,100) ) +
+        # scale_fill_gradientn( colors=pal, guide=FALSE, limits=c(-100,100) ) +
+        exec(scale_fill_gradientn, !!!cmap_nonlinear_colormap, guide = FALSE, limits = c(-100, 100)) +
         xlab( "CMap Target" )
 }
 
@@ -115,7 +133,8 @@ composite_plot <- function(X) {
     ## L1000 plot
     gg2 <- fplot( filter(X, source == "L1000") ) +
         ylab( "L1000 Query" ) +
-        scale_fill_gradientn( colors=pal, name="Tau", limits=c(-100,100) ) +
+        # scale_fill_gradientn( colors=pal, name="Tau", limits=c(-100,100) ) +
+        exec(scale_fill_gradientn, !!!cmap_nonlinear_colormap, name = "Tau", limits = c(-100, 100)) +
         theme(legend.position = "bottom")
 #
 #     cell_plot <- X %>%
@@ -147,7 +166,8 @@ composite_plot <- function(X) {
     ggs <- ggplot( S, aes(x=drugT, y=source, fill=tau) ) +
         theme_minimal() + theme_bold() +
         geom_tile(color="black") + ylab("") +
-        scale_fill_gradientn( colors=pal, guide=FALSE, limits=c(-100,100) ) +
+        # scale_fill_gradientn( colors=pal, guide=FALSE, limits=c(-100,100) ) +
+        exec(scale_fill_gradientn, !!!cmap_nonlinear_colormap, guide = FALSE, limits = c(-100, 100)) +
         theme(axis.text.x = element_blank(), axis.title.x = element_blank())
 
     ## Create the composite plot
@@ -178,7 +198,7 @@ ggcomp <- R2_completed %>%
 pwalk(
     ggcomp,
     function(z_score_cutoff, query_type, data, ...) {
-        walk( paste0("fig1_", z_score_cutoff, "_", query_type, c(".png", ".pdf")), ggsave, data, width=6.5, height=13 )
+        walk( paste0("fig1_", z_score_cutoff, "_", query_type, "_", "cmap_limits", c(".png", ".pdf")), ggsave, data, width=6.5, height=13 )
     }
 )
 
