@@ -1,5 +1,6 @@
 library( tidyverse )
 library( seriation )   # For optimal leaf reordering
+library(synapser)
 
 pathData <- "~/data/DGEsig"
 
@@ -8,14 +9,19 @@ syn <- synExtra::synDownloader(pathData, ifcollision="overwrite.local")
 
 
 ## Load all results
-R <- file.path(pathData, "clue_results_combined.rds") %>% read_rds() %>%
+R <- synapser::synGet("syn21907166", version = 5, ifcollision = "overwrite.local") %>%
+    chuck("path") %>%
+    # file.path(pathData, "clue_results_combined.rds") %>%
+    read_rds() %>%
     filter( result_type == "pert", score_level == "summary" ) %>%
     pluck( "data", 1 ) %>%
-    rename(idQ = lspci_id_query, idT = lspci_id_target, drugT = pert_iname)
+    dplyr::rename(idQ = lspci_id_query, idT = lspci_id_target, drugT = pert_iname)
 
 condition_conc_vars <- c("cells", "drug_id", "lspci_id", "stim", "stim_conc", "time")
 
-M <- syn("syn22000707") %>%
+M <- synGet("syn22000707", version = 8, ifcollision = "overwrite.local") %>%
+    chuck("path") %>%
+    # syn("syn22000707") %>%
     read_rds() %>%
     unnest(meta) %>%
     mutate(
@@ -95,7 +101,7 @@ fplot <- function(X) {
         geom_tile(color="black") +
         geom_tile(data=filter(X, idQ==idT), color="black", size=1) +
         scale_fill_gradientn( colors=pal, guide=FALSE, limits=c(-100,100) ) +
-        xlab( "Clue Target" )
+        xlab( "CMap Target" )
 }
 
 composite_plot <- function(X) {
@@ -104,40 +110,40 @@ composite_plot <- function(X) {
         scale_x_discrete(position = "top") +
         theme(axis.title.x = element_blank(),
               axis.text.x = element_text(hjust=0, vjust=0.5)) +
-        ylab( "DGE Query" )
+        ylab( "3' DGE Query" )
 
     ## L1000 plot
     gg2 <- fplot( filter(X, source == "L1000") ) +
         ylab( "L1000 Query" ) +
         scale_fill_gradientn( colors=pal, name="Tau", limits=c(-100,100) ) +
         theme(legend.position = "bottom")
-
-    cell_plot <- X %>%
-        distinct(drugQ, cell_id_query) %>%
-        # unchop(cell_id_query) %>%
-        mutate(
-            cell_id_query = map_chr(
-                cell_id_query,
-                ~if (is.null(.x) || length(.x) == 1) .x %||% "" else "multiple"
-            )
-        ) %>%
-        drop_na() %>%
-        ggplot(aes(drugQ, fill = cell_id_query)) +
-            geom_bar() +
-            coord_flip() +
-            theme_minimal() + theme_bold() +
-            scale_fill_brewer(palette = "Set2", name = "Query cell line") +
-            theme(
-                # axis.ticks.y = element_blank(), axis.text.y = element_blank(),
-                # axis.title.y = element_blank(), axis.title.x = element_blank(),
-                axis.title = element_blank(), axis.ticks = element_blank(),
-                axis.text.x = element_blank(), axis.text.y = element_blank()
-            )
+#
+#     cell_plot <- X %>%
+#         distinct(drugQ, cell_id_query) %>%
+#         # unchop(cell_id_query) %>%
+#         mutate(
+#             cell_id_query = map_chr(
+#                 cell_id_query,
+#                 ~if (is.null(.x) || length(.x) == 1) .x %||% "" else "multiple"
+#             )
+#         ) %>%
+#         drop_na() %>%
+#         ggplot(aes(drugQ, fill = cell_id_query)) +
+#             geom_bar() +
+#             coord_flip() +
+#             theme_minimal() + theme_bold() +
+#             scale_fill_brewer(palette = "Set2", name = "Query cell line") +
+#             theme(
+#                 # axis.ticks.y = element_blank(), axis.text.y = element_blank(),
+#                 # axis.title.y = element_blank(), axis.title.x = element_blank(),
+#                 axis.title = element_blank(), axis.ticks = element_blank(),
+#                 axis.text.x = element_blank(), axis.text.y = element_blank()
+#             )
 
     ## Summary plot
     S <- X %>% filter(idQ == idT) %>%
         mutate_at("source", factor, levels=c("L1000","DGE")) %>%
-        mutate_at("source", fct_recode, `Self (DGE)`="DGE", `Self (L1000)`="L1000")
+        mutate_at("source", fct_recode, `Self (DGE)`="3' DGE", `Self (L1000)`="L1000")
     ggs <- ggplot( S, aes(x=drugT, y=source, fill=tau) ) +
         theme_minimal() + theme_bold() +
         geom_tile(color="black") + ylab("") +
@@ -145,7 +151,7 @@ composite_plot <- function(X) {
         theme(axis.text.x = element_blank(), axis.title.x = element_blank())
 
     ## Create the composite plot
-    egg::ggarrange( gg1, cell_plot, ggs, egg::.dummy_ggplot, gg2, egg::.dummy_ggplot, heights=c(6.5,0.5,7.5), widths = c(6.5, 0.3), draw=FALSE )
+    egg::ggarrange( gg1, ggs, gg2, heights=c(6.5,0.5,7.5), widths = c(6.5), draw=FALSE )
 }
 
 ggcomp <- R2_completed %>%
@@ -172,11 +178,95 @@ ggcomp <- R2_completed %>%
 pwalk(
     ggcomp,
     function(z_score_cutoff, query_type, data, ...) {
-        walk( paste0("fig1_", z_score_cutoff, "_", query_type, c(".png", ".pdf")), ggsave, data, width=8, height=13 )
+        walk( paste0("fig1_", z_score_cutoff, "_", query_type, c(".png", ".pdf")), ggsave, data, width=6.5, height=13 )
     }
 )
 
 walk( c("fig1.pdf", "fig1.png"), ggsave, ggcomp2, width=28, height=12 )
+
+# Plot TAS vector similarity
+
+# Use old version of TAS vectors that matches used lspci_ids
+tas <- syn("syn20830942.4") %>%
+    read_csv()
+
+library(data.table)
+
+lspci_id_name_map <- R2 %>%
+    distinct(lspci_id = idQ, name = drugQ) %>%
+    mutate(across(lspci_id, as.double))
+
+tas_used <- tas %>%
+    filter(fp_name == "morgan_normal", lspci_id %in% R2$idQ) %>%
+    distinct(lspci_id, gene_id = entrez_gene_id, tas) %>%
+    setDT()
+
+tas_weighted_jaccard <- function(data_tas, query_id, min_n = 6) {
+    query_tas <- data_tas[lspci_id == query_id, .(gene_id, tas)]
+    data_tas[
+        ,
+        .(lspci_id, gene_id, tas)
+    ][
+        query_tas,
+        on = "gene_id",
+        nomatch = NULL
+    ][
+        ,
+        mask := tas < 10 | i.tas < 10
+    ][
+        ,
+        if (sum(mask) >= min_n) .(
+            "tas_similarity" = sum(pmin(tas[mask], i.tas[mask])) / sum(pmax(tas[mask], i.tas[mask])),
+            "n" = sum(mask),
+            "n_prior" = .N
+        ) else .(
+            "tas_similarity" = numeric(),
+            "n" = integer(),
+            "n_prior" = integer()
+        ),
+        by = "lspci_id"
+    ]
+}
+
+all_similarity <- tibble(lspci_id_1 = unique(tas_used$lspci_id)) %>%
+    mutate(
+        data = map(
+            lspci_id_1,
+            ~tas_weighted_jaccard(tas_used, .x) %>%
+                rename(lspci_id_2 = lspci_id)
+        )
+    ) %>%
+    unnest(data) %>%
+    left_join(
+        lspci_id_name_map %>%
+            rename(name_1 = name, lspci_id_1 = lspci_id)
+    ) %>%
+    left_join(
+        lspci_id_name_map %>%
+            rename(name_2 = name, lspci_id_2 = lspci_id)
+    ) %>%
+    mutate(across(starts_with("name"), factor, levels = lvl)) %>%
+    mutate(across(name_2, fct_rev))
+
+tas_similarity_plot <- ggplot( all_similarity, aes(x=name_1, y=name_2, fill=tas_similarity) ) +
+    theme_minimal() + theme_bold() +
+    geom_tile(color="black") +
+    geom_tile(data=filter(all_similarity, lspci_id_1==lspci_id_2), color="black", size=1) +
+    # scale_fill_gradientn( colors=pal, guide=FALSE, limits=c(0, 1) ) +
+    scale_fill_viridis_c(limits = c(0, 1)) +
+    # xlab( "CMap Target" ) +
+    scale_x_discrete(position = "top", drop = FALSE) +
+    scale_y_discrete(drop = FALSE) +
+    theme(axis.title.x = element_blank(),
+          axis.text.x = element_text(hjust=0, vjust=0.5),
+          axis.title.y = element_blank())
+    # ylab( "3' DGE Query")
+
+dir.create("tas_similarity")
+ggsave(
+    file.path("tas_similarity", "tas_similarity_heatmap.pdf"),
+    width = 6.5, height = 6.5
+)
 
 ## Query by cell-line
 
