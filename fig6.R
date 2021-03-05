@@ -65,7 +65,8 @@ simorder <- function( .df, .sim )
 
 ## Plotting elements
 pal  <- rev(RColorBrewer::brewer.pal(n=7, name="RdBu"))
-palj <- gray.colors(7, start=1, end=0)
+##palj <- gray.colors(7, start=1, end=0)
+palj <- pal[4:7]
 ebl <- element_blank
 etxt <- function(s, ...) {element_text( size = s, face = "bold", ... )}
 
