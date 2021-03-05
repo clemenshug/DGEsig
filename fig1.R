@@ -26,8 +26,14 @@ cmap_nonlinear_colormap <- list(
 # )
 
 ## Load all results
-R <- synapser::synGet("syn21907166", version = 5, ifcollision = "overwrite.local") %>%
-    chuck("path") %>%
+# R <- syn("syn21907166") %>%
+#     # file.path(pathData, "clue_results_combined.rds") %>%
+#     read_rds() %>%
+#     filter( result_type == "pert", score_level == "summary" ) %>%
+#     pluck( "data", 1 ) %>%
+#     dplyr::rename(idQ = lspci_id_query, idT = lspci_id_target, drugT = pert_iname)
+
+R <- syn("syn21907166.5") %>%
     # file.path(pathData, "clue_results_combined.rds") %>%
     read_rds() %>%
     filter( result_type == "pert", score_level == "summary" ) %>%
@@ -36,8 +42,22 @@ R <- synapser::synGet("syn21907166", version = 5, ifcollision = "overwrite.local
 
 condition_conc_vars <- c("cells", "drug_id", "lspci_id", "stim", "stim_conc", "time")
 
-M <- synGet("syn22000707", version = 8, ifcollision = "overwrite.local") %>%
-    chuck("path") %>%
+# M <- synGet("syn22000707", ifcollision = "overwrite.local") %>%
+#     chuck("path") %>%
+#     # syn("syn22000707") %>%
+#     read_rds() %>%
+#     unnest(meta) %>%
+#     mutate(
+#         gene_set = exec(
+#             paste,
+#             !!!as.list(.)[condition_conc_vars],
+#             sep = "_"
+#         ) %>%
+#             str_replace_all("\\s", "_") %>%
+#             str_replace_all("[^\\w]", "")
+#     )
+
+M <- syn("syn22000707.8") %>%
     # syn("syn22000707") %>%
     read_rds() %>%
     unnest(meta) %>%
@@ -55,11 +75,24 @@ M_cell_info <- M %>%
     filter(dataset != "fp_transdiff") %>%
     distinct(gene_set, lspci_id, cells)
 
+# pertubation_meta <- syn("syn21547097") %>%
+#     read_csv()
+
+# pertubation_meta <- syn("syn21547097.6") %>%
+#     read_csv()
+
 ## Identify the common set of drugs between DGE-query, L1000-query and targets
+# qcom <- intersect(
+#     R[["idQ"]],
+#     pertubation_meta[["lspci_id"]]
+# )
 qcom <- R %>% group_by( source ) %>% summarize_at( "idQ", list ) %>%
-    with( lift(intersect)(idQ) )
+    with(lift(intersect)(idQ) )
+
 dmap <- R %>% select( idT, drugT ) %>% filter( idT %in% qcom ) %>%
     distinct() %>% with( set_names(drugT,idT) )
+
+diff <- setdiff(qcom, names(dmap))
 
 ## Isolate the appropriate slice of data
 ## Aggregate across multiple entries to compute master similarity score
@@ -254,11 +287,51 @@ self_similarity_beeswarm <- R2 %>%
             guide = FALSE
         )
 
+
+self_similarity_beeswarm_agg <- R2 %>%
+    filter(query_type == "aggregated", is.na(z_score_cutoff) | z_score_cutoff == 0.7) %>%
+    mutate(
+        self_similarity = if_else(
+            idQ == idT,
+            "self_similarity",
+            "cross_similarity"
+        ) %>%
+            fct_relevel("cross_similarity")
+    ) %>%
+    arrange(self_similarity) %>%
+    ggplot(
+        aes(source, tau, fill = self_similarity)
+    ) +
+    geom_quasirandom(
+        data = ~filter(.x, self_similarity == "cross_similarity"),
+        shape = 21,
+        size = 1,
+        color = "NA",
+        method = "quasirandom",
+        bandwidth = 0.2,
+        width = 0.5
+    ) +
+    # geom_beeswarm(
+    #     data = ~filter(.x, self_similarity == "cross_similarity"),
+    #     shape = 21,
+    #     color = "NA",
+    #     priority = "random"
+    # ) +
+    scale_fill_manual(
+        values = c(
+            self_similarity = "#FF0000",
+            cross_similarity = "#00000088"
+        ),
+        guide = FALSE
+    ) +
+    theme_light()
+
+
 dir.create("self_similarity")
 ggsave(
-    file.path("self_similarity", "self_similarity_beeswarm.pdf"),
-    self_similarity_beeswarm,
-    width = 5, height = 10
+    file.path("self_similarity", "self_similarity_beeswarm_agg.pdf"),
+    self_similarity_beeswarm_agg,
+    width = 3, height = 5
 )
 
 self_similarity_stats <- R2 %>%
@@ -314,17 +387,17 @@ tas_used <- tas %>%
     setDT()
 
 tas_weighted_jaccard <- function(data_tas, query_id, min_n = 6) {
-    query_tas <- data_tas[lspci_id == query_id, .(gene_id, tas)]
+    query_tas <- data_tas[lspci_id == query_id, .(gene_id, tas = 11 - tas)]
     data_tas[
         ,
-        .(lspci_id, gene_id, tas)
+        .(lspci_id, gene_id, tas = 11 - tas)
     ][
         query_tas,
         on = "gene_id",
         nomatch = NULL
     ][
         ,
-        mask := tas < 10 | i.tas < 10
+        mask := tas > 1 | i.tas > 1
     ][
         ,
         if (sum(mask) >= min_n) .(
@@ -365,7 +438,7 @@ tas_similarity_plot <- ggplot( all_similarity, aes(x=name_1, y=name_2, fill=tas_
     geom_tile(color="black") +
     geom_tile(data=filter(all_similarity, lspci_id_1==lspci_id_2), color="black", size=1) +
     # scale_fill_gradientn( colors=pal, guide=FALSE, limits=c(0, 1) ) +
-    scale_fill_viridis_c(limits = c(0, 1)) +
+    scale_fill_viridis_c(limits = c(0, 1), na.value = "grey90") +
     # xlab( "CMap Target" ) +
     scale_x_discrete(position = "top", drop = FALSE) +
     scale_y_discrete(drop = FALSE) +
