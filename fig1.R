@@ -453,6 +453,56 @@ ggsave(
     width = 8, height = 6
 )
 
+# Tas similarity Fig 6
+
+fig6_drugs <- c(4763, 27399, 86140, 99986, 84200, 102661, 117785,
+  101253, 36292, 57736, 100531, 14772, 97896, 76898,
+  95012, 12104, 103943, 66433, 101674, 83449, 84593,
+  96877, 52270, 72549, 96251, 82024, 99378, 66419,
+  90309, 87501, 91047, 82566, 45745, 90255, 86536,
+  99422, 96405, 75291, 92053, 97426, 20087, 66998,
+  91759, 79027, 52760)
+
+tas_used <- tas %>%
+    filter(fp_name == "morgan_normal", lspci_id %in% fig6_drugs) %>%
+    distinct(lspci_id, gene_id = entrez_gene_id, tas) %>%
+    setDT()
+
+all_similarity <- tibble(lspci_id_1 = unique(tas_used$lspci_id)) %>%
+    mutate(
+        data = map(
+            lspci_id_1,
+            ~tas_weighted_jaccard(tas_used, .x) %>%
+                rename(lspci_id_2 = lspci_id)
+        )
+    ) %>%
+    unnest(data) %>%
+    mutate(across(starts_with("lspci_id"), factor, levels = fig6_drugs)) %>%
+    mutate(across(lspci_id_2, fct_rev))
+
+tas_similarity_plot <- ggplot( all_similarity, aes(x=lspci_id_1, y=lspci_id_2, fill=tas_similarity) ) +
+    theme_minimal() + theme_bold() +
+    geom_tile(color="black") +
+    # geom_tile(data=filter(all_similarity, lspci_id_1==lspci_id_2), color="black", size=1) +
+    # scale_fill_gradientn( colors=pal, guide=FALSE, limits=c(0, 1) ) +
+    scale_fill_viridis_c(limits = c(0, 1), na.value = "grey90") +
+    # xlab( "CMap Target" ) +
+    scale_x_discrete(position = "top", drop = FALSE) +
+    scale_y_discrete(drop = FALSE) +
+    theme(axis.title.x = element_blank(),
+          axis.text.x = element_blank(),
+          axis.title.y = element_blank(),
+          axis.text.y = element_blank())
+# ylab( "3' DGE Query")
+
+dir.create("tas_similarity")
+ggsave(
+    file.path("tas_similarity", "tas_similarity_fig6_heatmap.pdf"),
+    tas_similarity_plot,
+    width = 8, height = 6
+)
+
+
 ## Query by cell-line
 
 R3 <- R %>% filter(idT %in% names(dmap), idQ %in% names(dmap)) %>%
