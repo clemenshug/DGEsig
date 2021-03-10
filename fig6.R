@@ -76,8 +76,8 @@ simplot <- function( .df )
     ggplot( .df, aes(DrugID1, DrugID2, fill=Similarity) ) +
         theme_minimal() +
         geom_tile(color="gray") +
-        geom_rect(aes(xmin=8.5, xmax=13.5, ymin=ndg-8.5+1, ymax=ndg-13.5+1),
-                  fill=NA, color="black", size=1) +
+##        geom_rect(aes(xmin=8.5, xmax=13.5, ymin=ndg-8.5+1, ymax=ndg-13.5+1),
+##                  fill=NA, color="black", size=1) +
         theme(axis.text = ebl(),
               axis.title=ebl(),
               legend.text = etxt(12), legend.title=etxt(14),
@@ -119,9 +119,9 @@ gztau  <- zoomplot(ZTau)  + scale_fill_gradientn( colors=pal, limits=c(-1,1), gu
 ## Put everything together
 gg <- egg::ggarrange( plots=list(ggjcrd, ggtau), ncol=2,
                      labels=c(" A"," B"), padding=unit(2,"line"),
-                     label.args = list(gp = grid::gpar(font = 4, cex = 4)) ) %>%
-    ggdraw() %>%
-    + draw_plot( gztau, .68, .7, .17, .25 ) %>%
-    + draw_plot( gzjcrd, .18, .7, .17, .25 )
+                     label.args = list(gp = grid::gpar(font = 4, cex = 4)) ) #%>%
+##    ggdraw() %>%
+##    + draw_plot( gztau, .68, .7, .17, .25 ) %>%
+##    + draw_plot( gzjcrd, .18, .7, .17, .25 )
 ggsave( "fig6.pdf", gg, width=17, height=7 )
 ggsave( "fig6.png", gg, width=17, height=7 )
