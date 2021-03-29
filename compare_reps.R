@@ -2,16 +2,18 @@ library(tidyverse)
 # library(DESeq2)
 library(synapser)
 library(here)
-# library(data.table)
+library(qs)
+library(data.table)
 
 synLogin()
 
 syn <- synExtra::synDownloader("~/data/DGE_comp/")
 
-dge_gene_sets <- syn("syn22391154") %>%
-  read_rds()
+dge_gene_sets <- syn("syn25303778") %>%
+  qread()
 
-
+cmap_gene_sets <- syn("syn25314203") %>%
+  qread()
 
 bulk_gene_sets <- syn("syn23554368") %>%
   read_rds() %>%
@@ -23,11 +25,23 @@ bulk_gene_sets <- syn("syn23554368") %>%
   ) %>%
   ungroup()
 
-cmap_gene_sets <- syn("syn22391159") %>%
-  read_rds()
+cmap_perturbation_meta <- syn("syn21547097") %>%
+  read_csv(
+    col_types = list(
+      cmap_name = col_character(),
+      compound_aliases = col_character(),
+      target = col_character(),
+      moa = col_character()
+    )
+  )
 
-cmap_pertubation_meta <- syn("syn21547097") %>%
-  read_csv()
+cmap_signature_meta <- syn("syn21547101") %>%
+  fread()
+
+lspci_id_name_map <- syn("syn22035396") %>%
+  read_rds() %>%
+  filter(fp_name == "morgan_normal") %>%
+  chuck("data", 1L)
 
 # canonical_table <- syn("syn20835543") %>%
 #   read_rds() %>%
@@ -47,7 +61,10 @@ gene_set_comparison <- dge_gene_sets %>%
   # slice_head(1) %>%
   # ungroup() %>%
   transmute(
-    technique = "dge", lspci_id, cells, replicate = as.factor(paste(dataset, time, replicate, sep = "_")),
+    technique = "dge",
+    lspci_id, cells,
+    replicate = as.factor(paste(dataset, time, replicate, sep = "_")),
+    time,
     gene_set = gene_set_table %>%
       map(select, direction, entrezgene_id)
   ) %>%
@@ -62,8 +79,20 @@ gene_set_comparison <- dge_gene_sets %>%
         technique = "l1000", lspci_id, cells = cell_id, replicate,
         gene_set = as.list(gene_set_table) %>%
           map(select, direction, entrezgene_id)
+      ) %>%
+      inner_join(
+        cmap_signature_meta %>%
+          distinct(replicate = sig_id, time = pert_time),
+        by = "replicate"
       )
-  )
+  ) %>%
+  arrange(technique, desc(time)) %>%
+  group_by(technique, lspci_id, cells, time) %>%
+  mutate(
+    name = paste0(str_to_upper(technique), " ", time, "h Rep ", rev(seq_len(n()))) %>%
+      fct_inorder()
+  ) %>%
+  ungroup()
 
 gene_set_comparison_venn_data <- gene_set_comparison %>%
   mutate(across(cells, str_to_upper)) %>%
@@ -76,7 +105,8 @@ gene_set_comparison_venn_data <- gene_set_comparison %>%
   summarize(
     # venn = cur_data() %>%
     venn_data = cur_data() %>%
-      list()
+      list(),
+    .groups = "drop"
   )
 
 gene_set_comparison_venn <- gene_set_comparison_venn_data %>%
@@ -105,7 +135,6 @@ pwalk(
 
 
 make_upset <- function(df, ...) {
-  browser()
   df %>%
     transmute(
       name,
@@ -136,18 +165,66 @@ make_upset <- function(df, ...) {
 
 gene_set_comparison_upset_data <- gene_set_comparison_venn_data %>%
   left_join(
-    cmap_pertubation_meta %>%
-      distinct(lspci_id, pert_iname),
+    cmap_perturbation_meta %>%
+      distinct(lspci_id, pert_iname) %>%
+      drop_na(),
     by = "lspci_id"
   ) %>%
   filter(map_lgl(venn_data, ~length(unique(.x[["technique"]])) >= 2))
+
+all_combn <- function(x) {
+  map(
+    seq_along(x),
+    ~combn(x, .x, simplify = FALSE)
+  ) %>%
+    reduce(c)
+}
 
 gene_set_comparison_upset <- gene_set_comparison_upset_data %>%
   # head(n = 3) %>%
   mutate(
     venn = map(
       venn_data,
-      make_upset
+      ~{
+        # browser()
+        make_upset(
+          .x,
+          n_intersections = 30,
+          base_annotations = list(
+            'Intersection size' = ComplexUpset::intersection_size()
+            # 'Intersection ratio' = ComplexUpset::intersection_ratio()
+          ),
+          queries = c(
+            map(
+              filter(.x, str_starts(name, "DGE")) %>%
+                pull(name) %>%
+                all_combn(),
+              ~{
+                # browser()
+                ComplexUpset::upset_query(
+                  intersect = as.character(.x),
+                  only_components = "intersections_matrix",
+                  color = "cornflowerblue",
+                  fill = "cornflowerblue"
+                )
+              }
+            ),
+            map(
+              filter(.x, str_starts(name, "L1000")) %>%
+                pull(name) %>%
+                all_combn(),
+              ~ComplexUpset::upset_query(
+                intersect = as.character(.x),
+                only_components = "intersections_matrix",
+                color = "orangered",
+                fill = "orangered"
+              )
+            )
+          ),
+          set_sizes = FALSE,
+          sort_sets = FALSE
+        )
+      }
     )
   )
 
@@ -155,8 +232,8 @@ pwalk(
   gene_set_comparison_upset,
   function(pert_iname, venn, cells, ...) {
     withr::with_pdf(
-      paste0("upset_de_genes_", pert_iname, "_", cells, ".pdf"),
-      width = 8, height = 5,
+      paste0("upset_de_genes_", pert_iname, "_", cells, "_2.pdf"),
+      width = 12, height = 6,
       print(venn)
     )
     # png(paste0("upset_de_genes_", pert_iname, "_", cells, ".png"))

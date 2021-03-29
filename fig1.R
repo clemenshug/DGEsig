@@ -324,7 +324,12 @@ self_similarity_beeswarm_agg <- R2 %>%
         ),
         guide = FALSE
     ) +
-    theme_light()
+    facet_wrap(~source, scales = "free") +
+    theme_light() +
+    theme(
+        strip.background = element_blank(),
+        strip.text = element_blank()
+    )
 
 
 dir.create("self_similarity")
