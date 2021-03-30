@@ -2,6 +2,7 @@ library(synExtra)
 library(tidyverse)
 library(here)
 library(seriation)
+library(pheatmap)
 
 synapser::synLogin()
 syn <- synExtra::synDownloader("~/data/DGEsig")
@@ -32,11 +33,18 @@ cdk_results <- clue_res_combined %>%
   filter(result_type == "pert", score_level == "summary") %>%
   chuck("data", 1L) %>%
   filter(
-    source == "dge", cell_id_query == "mcf7", lspci_id_query %in% cdk_lspci_ids
+    source == "dge", lspci_id_query %in% cdk_lspci_ids
     )
 
 cdk_result_mat <- cdk_results %>%
   select(pert_id, name_query, tau) %>%
+  group_by(name_query, pert_id) %>%
+  summarize(
+    tau = quantile(tau, c(0.33, 0.66), na.rm = TRUE, names = FALSE) %>% {
+      .[which.max(abs(.))]
+    },
+    .groups = "drop"
+  ) %>%
   pivot_wider(pert_id, names_from = name_query, values_from = tau) %>%
   drop_na() %>%
   column_to_rownames("pert_id") %>%
@@ -45,10 +53,30 @@ cdk_result_mat <- cdk_results %>%
 cdk_result_cor <- cdk_result_mat %>%
   cor()
 
+cdk_result_clust <- cdk_result_cor %>%
+  dist() %>%
+  hclust() %>%
+  reorder(dist(cdk_result_cor))
+
+cdk_result_cor_heatmap <- pheatmap(
+  cdk_result_cor,
+  cluster_cols = cdk_result_clust,
+  cluster_rows = cdk_result_clust,
+  color = RColorBrewer::brewer.pal(5, "Reds") %>%
+    colorRampPalette() %>% {.(100)}
+)
+
 cdk_result_cor_heatmap <- ggplot(
   cdk_result_cor %>%
     as_tibble(rownames = "query_x") %>%
-    pivot_longer(-query_x, names_to = "query_y", values_to = "correlation"),
+    pivot_longer(-query_x, names_to = "query_y", values_to = "correlation") %>%
+    mutate(
+      across(
+        starts_with("query"),
+        factor,
+        levels = cdk_result_clust$labels
+      )
+    ),
   aes(query_x, query_y, fill = correlation)
 ) +
   geom_tile() +
@@ -58,6 +86,6 @@ cdk_result_cor_heatmap <- ggplot(
 
 ggsave(
   file.path(wd, "fig3c_cdk_inhib_cmap_correlation.pdf"),
-  cdk_result_cor_heatmap,
-  width = 4.5, height = 3
+  cdk_result_cor_heatmap$gtable,
+  width = 3.5, height = 3
 )
