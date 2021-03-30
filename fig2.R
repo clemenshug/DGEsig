@@ -1,8 +1,12 @@
 library( tidyverse )
 library( seriation )   # For optimal leaf reordering
 library(synapser)
+library(here)
 
 pathData <- "~/data/DGEsig"
+
+wd <- here("fig2")
+dir.create(wd, showWarnings = FALSE)
 
 synapser::synLogin()
 syn <- synExtra::synDownloader(pathData, ifcollision="overwrite.local")
@@ -17,22 +21,8 @@ cmap_nonlinear_colormap <- list(
         rev(),
     values = scales::rescale(c(-100, -90, -80, 80, 90, 100), from = c(-100, 100))
 )
-# scales::gradient_n_pal(
-#     c(
-#         rdbu_colormap[1:3],
-#         rdbu_colormap[3:5]
-#     ),
-#     scales::rescale(c(-100, -90, -80, 80, 90, 100), from = c(-100, 100))
-# )
 
 ## Load all results
-# R <- syn("syn21907166") %>%
-#     # file.path(pathData, "clue_results_combined.rds") %>%
-#     read_rds() %>%
-#     filter( result_type == "pert", score_level == "summary" ) %>%
-#     pluck( "data", 1 ) %>%
-#     dplyr::rename(idQ = lspci_id_query, idT = lspci_id_target, drugT = pert_iname)
-
 R <- syn("syn21907166.5") %>%
     # file.path(pathData, "clue_results_combined.rds") %>%
     read_rds() %>%
@@ -41,21 +31,6 @@ R <- syn("syn21907166.5") %>%
     dplyr::rename(idQ = lspci_id_query, idT = lspci_id_target, drugT = pert_iname)
 
 condition_conc_vars <- c("cells", "drug_id", "lspci_id", "stim", "stim_conc", "time")
-
-# M <- synGet("syn22000707", ifcollision = "overwrite.local") %>%
-#     chuck("path") %>%
-#     # syn("syn22000707") %>%
-#     read_rds() %>%
-#     unnest(meta) %>%
-#     mutate(
-#         gene_set = exec(
-#             paste,
-#             !!!as.list(.)[condition_conc_vars],
-#             sep = "_"
-#         ) %>%
-#             str_replace_all("\\s", "_") %>%
-#             str_replace_all("[^\\w]", "")
-#     )
 
 M <- syn("syn22000707.8") %>%
     # syn("syn22000707") %>%
@@ -82,10 +57,6 @@ M_cell_info <- M %>%
 #     read_csv()
 
 ## Identify the common set of drugs between DGE-query, L1000-query and targets
-# qcom <- intersect(
-#     R[["idQ"]],
-#     pertubation_meta[["lspci_id"]]
-# )
 qcom <- R %>% group_by( source ) %>% summarize_at( "idQ", list ) %>%
     with(lift(intersect)(idQ) )
 
@@ -101,9 +72,9 @@ R2 <- R %>% filter(idT %in% names(dmap), idQ %in% names(dmap)) %>%
     group_by( idQ, idT, source, z_score_cutoff, query_type ) %>%
     summarize(
         "tau" = tau[ which.max(abs(tau)) ],
-        cell_id_query = list(unique(cell_id_query))
+        cell_id_query = list(unique(cell_id_query)),
+        .groups = "drop"
     ) %>%
-    ungroup() %>%
     mutate_at( c("idQ", "idT"), as.character ) %>%
     mutate_at( "source", toupper ) %>%
     mutate( drugT = dmap[idT], drugQ = dmap[idQ] )
@@ -150,8 +121,8 @@ fplot <- function(X) {
         theme_minimal() + theme_bold() +
         geom_tile(color="black") +
         geom_tile(data=filter(X, idQ==idT), color="black", size=1) +
-        # scale_fill_gradientn( colors=pal, guide=FALSE, limits=c(-100,100) ) +
-        exec(scale_fill_gradientn, !!!cmap_nonlinear_colormap, guide = FALSE, limits = c(-100, 100)) +
+        scale_fill_gradientn( colors=pal, guide=FALSE, limits=c(-100,100) ) +
+        # exec(scale_fill_gradientn, !!!cmap_nonlinear_colormap, guide = FALSE, limits = c(-100, 100)) +
         xlab( "CMap Target" )
 }
 
@@ -166,8 +137,8 @@ composite_plot <- function(X) {
     ## L1000 plot
     gg2 <- fplot( filter(X, source == "L1000") ) +
         ylab( "L1000 Query" ) +
-        # scale_fill_gradientn( colors=pal, name="Tau", limits=c(-100,100) ) +
-        exec(scale_fill_gradientn, !!!cmap_nonlinear_colormap, name = "Tau", limits = c(-100, 100)) +
+        scale_fill_gradientn( colors=pal, name="Tau", limits=c(-100,100) ) +
+        # exec(scale_fill_gradientn, !!!cmap_nonlinear_colormap, name = "Tau", limits = c(-100, 100)) +
         theme(legend.position = "bottom")
 #
 #     cell_plot <- X %>%
@@ -195,16 +166,16 @@ composite_plot <- function(X) {
     ## Summary plot
     S <- X %>% filter(idQ == idT) %>%
         mutate_at("source", factor, levels=c("L1000","DGE")) %>%
-        mutate_at("source", fct_recode, `Self (DGE)`="3' DGE", `Self (L1000)`="L1000")
+        mutate_at("source", fct_recode, `Self (3' DGE)`="DGE", `Self (L1000)`="L1000")
     ggs <- ggplot( S, aes(x=drugT, y=source, fill=tau) ) +
         theme_minimal() + theme_bold() +
         geom_tile(color="black") + ylab("") +
-        # scale_fill_gradientn( colors=pal, guide=FALSE, limits=c(-100,100) ) +
-        exec(scale_fill_gradientn, !!!cmap_nonlinear_colormap, guide = FALSE, limits = c(-100, 100)) +
+        scale_fill_gradientn( colors=pal, guide=FALSE, limits=c(-100,100) ) +
+        # exec(scale_fill_gradientn, !!!cmap_nonlinear_colormap, guide = FALSE, limits = c(-100, 100)) +
         theme(axis.text.x = element_blank(), axis.title.x = element_blank())
 
     ## Create the composite plot
-    egg::ggarrange( gg1, ggs, gg2, heights=c(6.5,0.5,7.5), widths = c(6.5), draw=FALSE )
+    egg::ggarrange( gg1, ggs, gg2, heights=c(7.5,0.5,7.5), widths = c(6.5), draw=FALSE )
 }
 
 ggcomp <- R2_completed %>%
@@ -219,23 +190,18 @@ ggcomp <- R2_completed %>%
             map(composite_plot)
     )
 
-# ggcomp <- gridExtra::arrangeGrob(
-#     grobs = map2(
-#         ggcomp$data, ggcomp$z_score_cutoff,
-#         ~gridExtra::arrangeGrob(.x, top = paste0("z-cutoff ", .y * 100, "%"))
-#     ),
-#     # set_names( ggcomp$data, ggcomp$z_score_cutoff ),
-#     nrow = 1
-# )
 
 pwalk(
     ggcomp,
     function(z_score_cutoff, query_type, data, ...) {
-        walk( paste0("fig1_", z_score_cutoff, "_", query_type, "_", "cmap_limits", c(".png", ".pdf")), ggsave, data, width=6.5, height=13 )
+        walk(
+          file.path(
+            wd,
+            paste0("fig2_", z_score_cutoff, "_", query_type, c(".png", ".pdf"))
+          ),
+          ggsave, data, width=6.5, height=14 )
     }
 )
-
-walk( c("fig1.pdf", "fig1.png"), ggsave, ggcomp2, width=28, height=12 )
 
 # Test if self-similarity is significantly higher than other similarities
 
@@ -324,19 +290,22 @@ self_similarity_beeswarm_agg <- R2 %>%
         ),
         guide = FALSE
     ) +
-    facet_wrap(~source, scales = "free") +
+    facet_wrap(~source, scales = "free", ncol = 1) +
     theme_light() +
     theme(
         strip.background = element_blank(),
-        strip.text = element_blank()
-    )
+        strip.text = element_blank(),
+        panel.border = element_blank(),
+        panel.grid.major.x = element_blank()
+    ) +
+    scale_y_continuous(position = "right") +
+    labs(x = NULL, y = "Tau")
 
 
-dir.create("self_similarity")
 ggsave(
-    file.path("self_similarity", "self_similarity_beeswarm_agg.pdf"),
+    file.path(wd, "fig2b_self_similarity_beeswarm_agg.pdf"),
     self_similarity_beeswarm_agg,
-    width = 3, height = 5
+    width = 1.5, height = 7.5
 )
 
 self_similarity_stats <- R2 %>%
