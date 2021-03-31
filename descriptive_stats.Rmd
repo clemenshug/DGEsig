@@ -1,0 +1,468 @@
+
+```{r loading}
+# library(synExtra)
+library(tidyverse)
+library(patchwork)
+library(ggbeeswarm)
+library(here)
+library(gt)
+
+synapser::synLogin()
+syn <- synExtra::synDownloader("~/data/DGE_comp/")
+
+paste_ <- function(...) {
+  paste(..., sep = "_")
+}
+
+theme_set(theme_light())
+
+```
+
+
+```{r counts}
+raw_counts <- syn("syn21544261") %>%
+  read_rds()
+
+meta <- syn("syn22000707") %>%
+  read_rds()
+
+pertubation_meta <- syn("syn21547097") %>%
+  read_csv(
+    col_types = cols(
+      lspci_id = col_integer(),
+      cmap_name = col_character(),
+      compound_aliases = col_character(),
+      target = col_character(),
+      moa = col_character()
+    )
+  )
+
+all_gene_sets <- syn("syn22105667") %>%
+  read_csv(
+    col_types = cols(
+      lspci_id = col_integer(),
+      cell_aggregate_method = col_character(),
+      zscore = col_double(),
+      drug_conc = col_double(),
+      time = col_double(),
+      stim_conc = col_double(),
+      stim = col_character(),
+      cutoff = col_double(),
+      cell_id = col_character(),
+      replicate = col_character()
+    )
+  )
+
+compound_names <- syn("syn22035396") %>%
+  read_rds() %>%
+  filter(fp_name == "morgan_normal") %>%
+  chuck("data", 1) %>%
+  group_by(lspci_id) %>%
+  slice(1) %>%
+  ungroup() 
+```
+
+
+```{r sequencing_stats}
+MIN_N_READS_DETECTABLE <- 5
+MIN_N_READS_VALID <- 50000
+
+sequencing_stats <- raw_counts %>%
+  rowwise() %>%
+  transmute(
+    dataset, plate, date,
+    stats = counts %>%
+      group_by(sample_id) %>%
+      summarize(
+        total_counts = sum(count),
+        n_detectable = sum(count >= MIN_N_READS_DETECTABLE),
+        fraction_detectable = n_detectable / n(),
+        passing = total_counts >= MIN_N_READS_VALID
+      ) %>%
+      list()
+  ) %>%
+  ungroup() %>%
+  unnest(stats)
+```
+
+
+```{r sequencin_depth_plots}
+
+dataset_names <- tribble(
+  ~dataset, ~dataset_name, ~date,
+  "jsm_merck", "Myofibroblast screen", "2017_09",
+  "ld_dub", "DUB inhibitors", "2018_06",
+  "sr_repurposing", "AD drug repurposing 1", "2018_02",
+  "sr_repurposing", "AD drug repurposing 2", "2018_11",
+  "lincs_cdk4_6_7", "CDK4/6 inhibitors 1", "2017_09",
+  "lincs_cdk4_6_7", "CDK4/6 inhibitors 2", "2019_08",
+  "fp_transdiff", "2015_10_feodor_price_transdifferentiation_screen", "2015_10"
+) %>%
+  mutate(across(c(dataset_name), fct_inorder))
+
+seq_depth_violin <- sequencing_stats %>%
+  filter(!dataset %in% c("fp_transdiff")) %>%
+  inner_join(dataset_names, by = c("dataset", "date")) %>%
+  ggplot((aes(x = dataset_name, y = total_counts))) +
+    geom_quasirandom(varwidth = FALSE, width = 0.45, method = "quasirandom") +
+    scale_y_log10() +
+    scale_x_discrete(position = "top") +
+    geom_hline(yintercept = MIN_N_READS_VALID, linetype = "dashed") +
+    labs(x = "", y = "Sequencing depth") +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 0, face = "bold"),
+      axis.text.y = element_text(face = "bold")
+    )
+
+dir.create(here("descriptive_stats"), showWarnings = FALSE)
+ggsave(here("descriptive_stats", "sequencing_depth_violin.png"), seq_depth_violin, width = 5.5, height = 4.5)
+```
+
+```{r dectable_genes_violin_plot}
+
+detectable_genes_violin <- sequencing_stats %>%
+  filter(!dataset %in% c("fp_transdiff"), passing) %>%
+  inner_join(dataset_names, by = c("dataset", "date")) %>%
+  ggplot((aes(x = dataset_name, y = n_detectable, color = passing))) +
+    geom_quasirandom(varwidth = FALSE, width = 0.45, method = "quasirandom") +
+    scale_y_log10() +
+    scale_x_discrete(position = "top") +
+    scale_color_manual(values = c(`TRUE` = "black", `FALSE` = "red"), guide = FALSE) +
+    # geom_hline(yintercept = MIN_N_READS_VALID, linetype = "dashed") +
+    labs(x = "", y = "N genes with >5 reads") +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 0, face = "bold"),
+      axis.text.y = element_text(face = "bold")
+    )
+
+
+dir.create(here("descriptive_stats"), showWarnings = FALSE)
+ggsave(here("descriptive_stats", "detectable_genes_violin.png"), detectable_genes_violin, width = 5.5, height = 4.5)
+
+cor_depth_detectable_plot <- sequencing_stats %>%
+  filter(!dataset %in% c("fp_transdiff"), passing) %>%
+  inner_join(dataset_names, by = c("dataset", "date")) %>%
+  ggplot((aes(x = total_counts, y = n_detectable, color = passing))) +
+    geom_point() +
+    scale_x_log10() +
+    scale_y_log10() +
+    scale_color_manual(values = c(`TRUE` = "black", `FALSE` = "red"), guide = FALSE) +
+    facet_wrap(vars(dataset_name))
+    scale_x_discrete(position = "top") +
+    scale_color_manual(values = c(`TRUE` = "black", `FALSE` = "red"), guide = FALSE) +
+    # geom_hline(yintercept = MIN_N_READS_VALID, linetype = "dashed") +
+    labs(x = "", y = "N genes with >5 reads") +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 0, face = "bold"),
+      axis.text.y = element_text(face = "bold")
+    )
+
+```
+
+
+```{r table}
+dataset_names <- tribble(
+  ~dataset, ~dataset_name, ~date,
+  "jsm_merck", "1) Myofibroblast screen", "2017_09",
+  "ld_dub", "2) DUB inhibitors [xx]", "2018_06",
+  "lincs_cdk4_6_7", "3) CDK4/6 inhibitors 1 [xx]", "2017_09",
+  "lincs_cdk4_6_7", "4) CDK4/6 inhibitors 2 [xx]", "2019_08",
+  "sr_repurposing", "5) AD drug repurposing 1 [xx]", "2018_02",
+  "sr_repurposing", "6) AD drug repurposing 2 [xx]", "2018_11",
+  "fp_transdiff", "2015_10_feodor_price_transdifferentiation_screen", "2015_10"
+) %>%
+  mutate(across(c(dataset_name), fct_inorder))
+
+
+meta_table <- meta %>%
+  filter(!dataset %in% c("fp_transdiff")) %>%
+  inner_join(dataset_names, by = c("dataset", "date")) %>%
+  unnest(meta) %>%
+  filter(!cells %in% c("MDAMB231")) %>%
+  group_by(dataset, dataset_name, date) %>%
+  summarize(
+    `n samples` = n(),
+    `n drugs` = length(unique(drug_id)),
+    `n drugs in CMap` = length(intersect(lspci_id, pertubation_meta$lspci_id)),
+    `n cell lines` = length(unique(cells))
+  ) %>%
+  ungroup() %>%
+  inner_join(
+    sequencing_stats %>%
+      select(dataset, date, total_counts, n_detectable) %>%
+      group_by(dataset, date) %>%
+      summarize(
+        `median sequencing depth` = median(total_counts) %>%
+          as.integer(),
+        `median genes detected` = median(n_detectable) %>%
+          as.integer()
+      ),
+    by = c("dataset", "date")
+  ) %>%
+  select(-dataset, -date) %>%
+  arrange(dataset_name) %>%
+  rename(` ` = dataset_name)
+
+meta_table_gt <- meta_table %>%
+  gt() %>%
+  tab_options(column_labels.font.weight = "bold") %>%
+  cols_align("right") %>%
+  cols_align("left", columns = vars(` `)) %>%
+  fmt_number(
+    columns = tidyselect::eval_select(rlang::expr(where(is.numeric)), meta_table),
+    use_seps = TRUE,
+    sep_mark = ",",
+    decimals = 0
+  )
+
+gtsave(
+  meta_table_gt,
+  here("descriptive_stats", "dataset_table.html")
+)
+```
+
+```{r overlap_drugs}
+library(ComplexUpset)
+library(ggvenn)
+
+
+dge_all_compounds <- meta %>%
+  filter(dataset != "fp_transdiff") %>%
+  unnest(meta) %>%
+  distinct(dataset, lspci_id) %>%
+  drop_na() %>%
+  left_join(
+    compound_names
+  )
+
+good_dge_sets <- all_gene_sets %>%
+    filter(source == "dge", padj < 0.1) %>%
+    group_by(gene_set_name) %>%
+    filter(
+      if(sum(direction == "up") >= 10 && sum(direction == "down") >= 10) TRUE else FALSE
+    ) %>%
+    ungroup()
+
+clue_res_all <- syn("syn21907166") %>%
+  read_rds()
+
+clue_res_overlap_query <- clue_res_all %>%
+  filter(
+    result_type == "pert",
+    score_level == "summary"
+  ) %>%
+  chuck("data", 1)
+
+old_new_lspci_id_map <- clue_res_overlap_query %>%
+  distinct(pert_id, lspci_id_old = lspci_id_target) %>%
+  drop_na() %>%
+  inner_join(
+    pertubation_meta %>%
+      distinct(pert_id, lspci_id_new = lspci_id) %>%
+      drop_na(),
+    by = "pert_id"
+  )
+
+old_new_lspci_id_map_vec <- with(
+  old_new_lspci_id_map,
+  set_names(lspci_id_new, lspci_id_old)
+)
+
+clue_res_overlap_query_new <- clue_res_overlap_query %>%
+  mutate(
+    lspci_id_target = old_new_lspci_id_map_vec[as.character(lspci_id_target)],
+    lspci_id_query = old_new_lspci_id_map_vec[as.character(lspci_id_query)]
+  )
+
+cmap_res_old <- clue_res_overlap_query_new %>%
+  filter(query_type == "aggregated", z_score_cutoff %in% c(NA_real_, 0.7)) %>%
+  group_by(
+    lspci_id_query
+  ) %>%
+  filter(
+    if(any(source == "dge") && any(source == "l1000")) TRUE else FALSE
+  ) %>%
+  ungroup() %>%
+  distinct(lspci_id = lspci_id_query, cmap_query = TRUE) %>%
+  drop_na()
+
+old_cmap_upset_data <- meta %>%
+  filter(dataset != "fp_transdiff") %>%
+  unnest(meta) %>%
+  distinct(lspci_id) %>%
+  drop_na() %>%
+  mutate(
+    dge = TRUE
+  ) %>%
+  left_join(
+    pertubation_meta %>%
+      filter(dataset != "LINCS_2020") %>%
+      distinct(lspci_id) %>%
+      drop_na() %>%
+      mutate(
+        cmap = TRUE
+      ),
+    by = "lspci_id"
+  ) %>%
+  left_join(
+    pertubation_meta %>%
+      distinct(lspci_id) %>%
+      drop_na() %>%
+      mutate(
+        cmap_new = TRUE
+      ),
+    by = "lspci_id"
+  ) %>%
+  left_join(
+    good_dge_sets %>%
+      filter(source == "dge") %>%
+      distinct(lspci_id) %>%
+      drop_na() %>%
+      mutate(
+        gene_set = TRUE
+      ),
+    by = "lspci_id"
+  ) %>%
+  left_join(
+    cmap_res_old,
+    by = "lspci_id"
+  ) %>%
+  mutate(
+    across(everything(), replace_na, replace = FALSE)
+  )
+
+ggvenn::ggvenn(
+  old_cmap_upset_data
+)
+
+old_cmap_upset_plot <- upset(
+  old_cmap_upset_data,
+  intersect = c("dge", "cmap", "cmap_new", "gene_set", "cmap_query"),
+  set_sizes = upset_set_size(
+    geom = geom_bar()
+  ) + 
+    geom_text(
+      aes(label=stat(count)),
+      stat='count',
+      color = "white",
+      hjust = -0.5
+    )
+)
+
+cowplot::ggsave2(
+  here("descriptive_stats", "compound_dataset_intersection.pdf"),
+  old_cmap_upset_plot, width = 6, height = 4
+)
+
+```
+
+
+
+```{r sequencin_depth_plots_cdk}
+etxt <- function(s, ...) {element_text( size = s, face = "bold", ... )}
+theme_bold <- function() {
+    theme(axis.text.x = etxt(12, angle=90, hjust=1, vjust=0.5),
+          axis.text.y = etxt(12), axis.title = etxt(14),
+          legend.text = etxt(12), legend.title = etxt(14),
+          axis.ticks = element_blank())
+}
+
+
+seq_depth_violin <- seq_depth %>%
+  filter(name == "cdk") %>%
+  mutate_at(vars(method), ~recode(.x, bulk = "RNA-seq", dge = "DGE")) %>%
+  # Get rid out outlier bulk which has < 1000 counts
+  filter(depth > 1000) %>%
+  ggplot(aes(method, depth)) +
+    geom_violin(draw_quantiles = c(0.25, 0.5, 0.75)) +
+    scale_y_log10() +
+    geom_label(
+      aes(method, ypos, label = median),
+      data = . %>%
+        group_by(name, method) %>%
+        summarize(median = format(median(depth), big.mark = ",", scientific = FALSE), ypos = median(depth)),
+      label.size = 0
+    ) +
+  labs(y = "Sequencing depth") +
+  theme_bold()
+dir.create("descriptive_stats", showWarnings = FALSE)
+ggsave(here("descriptive_stats", "sequencing_depth_violin_cdk_only.png"), width = 3.5, height = 4)
+```
+
+
+```{r pca}
+pca_plot <- function (data, meta, aes = ggplot2::aes(PC1, PC2), extra_layers = NULL, ...) {
+  p <- prcomp(data, ...)
+  pstats <- t(summary(p)$importance) %>%
+    tibble::as_tibble(rownames = "component") %>%
+    dplyr::rename(sdev = `Standard deviation`, prop_var = `Proportion of Variance`, cum_prop = `Cumulative Proportion`) %>%
+    dplyr::mutate(component = factor(component, levels = unique(component))) %>%
+    # Remove all components after cumsum reaches .999
+    dplyr::filter(cumsum(dplyr::lag(cum_prop > .95, default = FALSE)) <= 1) %>%
+    # Maximum 10 components
+    dplyr::slice(1:min(10, n()))
+  ploadings <- p$x %>%
+    tibble::as_tibble() %>%
+    dplyr::bind_cols(meta)
+  p_plot <- ggplot(ploadings, aes) +
+    geom_point()
+  if (!is.null(extra_layers))
+    p_plot <- p_plot + extra_layers
+  # var_plot <- ggplot(pstats, ggplot2::aes(x = 1, y = prop_var, fill = component)) +
+  #   geom_col(position = "stack") +
+  #   # geom_text(ggplot2::aes(y = cum_prop, label = prop_var), halign = 0, valign = 1) +
+  #   coord_flip() +
+  #   guides(fill = FALSE)
+    # theme(legend.position = "bottom")
+  # browser()
+  var_table <- gridExtra::tableGrob(
+    pstats %>%
+      dplyr::select(component, prop_var) %>%
+      dplyr::mutate(prop_var = formatC(prop_var * 100, digits = 3, format = "fg")) %>%
+      tidyr::spread(component, prop_var),
+    rows = NULL,
+    theme = gridExtra::ttheme_default(base_size = 6)
+  )
+  patchwork::wrap_plots(p_plot, var_table, heights = c(5, 1), ncol = 1)
+}
+
+
+cdk_new_meta <- data_sets %>%
+  filter(name == "cdk_new", ) %>%
+  pluck("meta", 1) %>%
+  filter(sample_id %in% colnames(cdk_new_pca_data)) %>%
+  arrange(sample_id) %>%
+  column_to_rownames("sample_id")
+
+cdk_new_pca_data <- counts %>%
+  filter(name == "cdk_new", normalization == "variance_stabilized") %>%
+  arrange(sample_id) %>%
+  select(gene_id, sample_id, count) %>%
+  spread(sample_id, count) %>%
+  column_to_rownames("gene_id")
+
+
+
+dge_pca_plot <- pca_plot(
+  t(cdk_new_pca_data),
+  cdk_new_meta %>%
+    mutate_at(vars(time), as.factor),
+  aes(PC1, PC2, shape = cell_line, color = drug, size = concentration, alpha = 0.7),
+  extra_layers = list(
+    # scale_shape_manual(values = 21:25),
+    # scale_color_viridis_d()
+    # scale_color_continuous(trans = "log10")
+    facet_wrap(~time)
+    # scale_color_brewer(palette = "Set2")
+  )
+  # extra_layers = list(
+  #   scale_color_continuous(trans = "log10"),
+  #   labs(title = "MCF7 Abemaciclib")
+  # )
+)
+
+ggsave(here("deseq", "cdk_new_all_pca_pc1_pc2.pdf"), width = 6, height = 6)
+
+```
+
+
