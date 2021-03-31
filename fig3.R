@@ -4,6 +4,19 @@ library( ggbeeswarm )
 
 pathData <- "~/data/DGEsig"
 
+
+synapser::synLogin()
+syn <- synExtra::synDownloader(pathData, ifcollision="overwrite.local")
+
+compound_name_map <- syn("syn22035396.3") %>%
+    read_rds() %>%
+    filter(fp_name == "morgan_normal") %>%
+    chuck("data", 1) %>%
+    group_by(lspci_id) %>%
+    slice(1L) %>%
+    ungroup() %>%
+    mutate(across(name, str_to_lower))
+
 ## Cell line metadata
 CM <- tribble(
     ~Short,    ~Tissue,    ~Subtype,
@@ -23,26 +36,37 @@ cndict <- c(a375 = "A375", a549 = "A549", ha1e = "HA1E", hcc515 = "HCC515",
             hepg2 = "HepG2", ht29 = "HT29", mcf7 = "MCF-7", pc3 = "PC3", vcap = "VCaP")
 
 ## Isolate the relevant data chunk
-R0 <- file.path(pathData, "clue_results_dge.rds") %>% read_rds() %>%
-    pluck( "data", 3 )
+R0 <- syn("syn21907139.6") %>% read_rds()
 
-R <- R0 %>% filter( pert_type == "trt_cp", grepl("MCF7", gene_set) ) %>%
+R <- R0 %>%
+    filter(result_type == "pert", score_level == "cell") %>%
+    chuck("data", 1L) %>%
+    filter( pert_type == "trt_cp", cell_id_query == "mcf7" ) %>%
     select(cellT = cell_id_target, drugT = pert_iname, tau, gene_set,
            idT = lspci_id_target, idQ = lspci_id_query) %>%
     filter( !is.na(idQ), !is.na(idT) ) %>%
-    mutate_at( "cellT", recode, !!!cndict )
+    mutate_at( "cellT", recode, !!!cndict ) %>%
+    left_join(
+        compound_name_map %>%
+            distinct(lspci_id, drugQ = name),
+        by = c("idQ" = "lspci_id")
+    )
 
 ## MCF7 @ Alvocidib / Flavopiridol / Palbo
-S1 <- R %>% filter(idT == idQ) %>%
-    mutate(drugQ = str_split(gene_set, "_") %>%
-               map_chr(pluck, 5) %>% str_to_lower,
-           gene_set = NULL) %>%
+S1 <- R %>% filter(
+        idT == idQ,
+        drugQ %in% c("alvocidib", "palbociclib")
+    ) %>%
     inner_join( CM, by = c("cellT"="Short") ) %>%
-    mutate_at( c("drugQ","Label"), factor ) %>%
-    rename( Tau = tau ) %>%
-    mutate_at(c("drugT","drugQ"), recode,
-              alvocidib    = "alvocidib (R1)",
-              flavopiridol = "alvocidib (R2)")
+    # mutate_at( c("drugQ","Label"), factor ) %>%
+    rename( Tau = tau )
+    # mutate(
+    #     drugQ = if_else(
+    #         drugQ == "alvocidib",
+    #         paste0("alvocidib R", as.integer(as.factor(gene_set))),
+    #         drugQ
+    #     )
+    # )
 
 ## Split by tau interval
 SS1 <- S1 %>% mutate( region = fct_rev(cut(Tau, breaks=c(-100, 95, 100))) ) %>%
@@ -84,6 +108,6 @@ fplot <- function( .df, isTop ) {
 
 ggs <- map2( SS1, c(TRUE,FALSE), fplot )
 ggcomp <- egg::ggarrange( plots=ggs, ncol=1, heights=c(0.5,0.5), draw=FALSE )
+
 ggsave("fig3.pdf", ggcomp, width=6, height=9)
 ggsave("fig3.png", ggcomp, width=6, height=9)
-
