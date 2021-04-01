@@ -1,6 +1,10 @@
 library( tidyverse )
 library( ggrepel )
 library( ggbeeswarm )
+library(here)
+
+wd <- here("fig3")
+dir.create(wd, showWarnings = FALSE)
 
 pathData <- "~/data/DGEsig"
 
@@ -73,7 +77,10 @@ SS1 <- S1 %>% mutate( region = fct_rev(cut(Tau, breaks=c(-100, 95, 100))) ) %>%
     split(.$region)
 
 ## Plotting elements
-pal <- set_names( ggthemes::few_pal()(7), unique(S1$Tissue) )
+pal <- set_names(
+    rep_along(cndict, "gray35"), cndict
+) %>%
+    magrittr::inset(names(.) == "MCF-7", "orangered")
 etxt <- function(s, ...) {element_text( size = s, face = "bold", ... )}
 theme_bold <- function() {
     theme(axis.text = etxt(12), axis.title = etxt(14),
@@ -82,16 +89,21 @@ theme_bold <- function() {
 
 ## Additional parameters for each plot
 fplot <- function( .df, isTop ) {
-    gg <- ggplot(.df, aes(x=drugQ, y=Tau, color=Tissue, group=drugQ)) + 
+    gg <- ggplot(
+            .df,
+            aes(x=drugQ, y=Tau, color=cellT, group=drugQ)
+        ) +
         theme_bw() + theme_bold() +
-        geom_beeswarm(cex=3, beeswarmArgs=list(side=-1)) +
-        geom_vline(xintercept=c(1.7,2.7), color="lightgray") +
-        scale_color_manual( values=pal, drop=FALSE ) +
-        scale_x_discrete( drop=FALSE, expand=expansion(add=c(0.3,0.6)),
+        geom_beeswarm(cex=3, beeswarmArgs=list(side=-1), show.legend = FALSE) +
+        geom_vline(xintercept=c(1.5), color="lightgray") +
+        scale_color_manual(values = pal) +
+        scale_x_discrete( drop=FALSE, expand=expansion(add=c(0.4,0.4)),
                          name="3' DGE Query Signature" ) +
         geom_text_repel(aes(label=cellT), show.legend=FALSE,
-                        fontface="bold", nudge_x = 0.3,
-                        direction="y", segment.color=NA ) +
+                        fontface="bold",
+                        direction="both", point.padding = 10,
+                        segment.color = NA, force_pull = 2,
+                        seed = 1 ) +
         theme(panel.grid.minor = element_blank(),
               panel.grid.major.x = element_blank())
 
@@ -100,14 +112,12 @@ fplot <- function( .df, isTop ) {
                          axis.ticks.x = element_blank(),
                          axis.text.x = element_blank(),
                          legend.position="top")
-    else
-        gg <- gg + theme(axis.text.x = element_text(hjust=0.3)) +
-            guides( color=FALSE )
     gg
 }
 
 ggs <- map2( SS1, c(TRUE,FALSE), fplot )
 ggcomp <- egg::ggarrange( plots=ggs, ncol=1, heights=c(0.5,0.5), draw=FALSE )
+# ggcomp
 
-ggsave("fig3.pdf", ggcomp, width=6, height=9)
-ggsave("fig3.png", ggcomp, width=6, height=9)
+ggsave(file.path(wd, "fig3a.pdf"), ggcomp, width=4, height=6)
+ggsave(file.path(wd, "fig3a.png"), ggcomp, width=4, height=6)
