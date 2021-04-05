@@ -45,10 +45,7 @@ diff_exp_by_conc <- syn("syn21559856") %>%
 diff_exp_linear <- syn("syn21559859") %>%
   read_rds()
 
-pertubation_meta <- syn("syn21547097") %>%
-  read_csv()
-
-signature_meta <- syn("syn21547101") %>%
+signature_meta <- syn("syn21547101.6") %>%
   read_csv()
 
 ensembl_hugo_map <- diff_exp_by_conc %>%
@@ -327,6 +324,13 @@ ggsave(
 palbo_dose_cor_plot_data <- dose_response_pairwise(palbo_dose_cor)
 
 palbo_dose_fisher <- dose_response_pairwise_fisher(palbo_dose_cor_plot_data)
+
+palbo_dose_fisher_table <- gt::gt(
+  palbo_dose_fisher[[1]] %>%
+    as_tibble() %>%
+    pivot_wider(names_from = correlation, values_from = n),
+  rowname_col = "method"
+)
 
 palbo_dose_cor_plot <- palbo_dose_cor_plot_data %>%
   ggplot(aes(dge, l1000)) +
