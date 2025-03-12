@@ -6,11 +6,11 @@ library(here)
 wd <- here("fig3")
 dir.create(wd, showWarnings = FALSE)
 
-pathData <- "~/data/DGEsig"
+pathData <- "~/data"
 
 
 synapser::synLogin()
-syn <- synExtra::synDownloader(pathData, ifcollision="overwrite.local")
+syn <- synExtra::synDownloader(pathData, .cache = TRUE)
 
 compound_name_map <- syn("syn22035396.3") %>%
     read_rds() %>%
