@@ -181,8 +181,7 @@ stopifnot( map(V$Vals, names) %>% map_lgl(identical, .[[1]]) %>% all )
 
 ## Compute pair-wise similarity for all query drugs
 tausim <- function( v1, v2 ) cor(v1,v2,method="pearson", use="complete.obs")
-jcrdsim <- function(gs1, gs2)
-  length(intersect(gs1, gs2)) / length(union(gs1, gs2))
+jcrdsim <- function(gs1, gs2) length(intersect(gs1, gs2)) / length(union(gs1, gs2))
 SM <- crossing(rename_all(V, str_c, "1"),
                rename_all(V, str_c, "2")) %>%
   mutate(TauSim  = map2_dbl(Vals1, Vals2, tausim),
