@@ -32,6 +32,11 @@ R_all <- syn("syn26468923") %>%
   # file.path(pathData, "clue_results_combined.rds") %>%
   qread()
 
+R_cells <- R_all %>%
+  filter(result_type == "pert", score_level == "cell") %>%
+  pluck("data", 1) %>%
+  as_tibble()
+
 R <- R_all %>%
   # filter( result_type == "pert", score_level == "cell" ) %>%
   # pluck( "data", 1 ) %>%
@@ -237,7 +242,7 @@ R4 <- R3 %>%
           lspci_id_q
         ) %>%
         arrange(desc(abs(tau))) %>%
-        slice(5) %>%
+        slice_head(n = 5) %>%
         pull("lspci_id_t")
     }
   )
@@ -342,7 +347,7 @@ R4 <- R3 %>%
           lspci_id_q
         ) %>%
         arrange(desc(tau)) %>%
-        slice(5) %>%
+        slice_head(n = 5) %>%
         pull("lspci_id_t")
     }
   )
@@ -363,7 +368,7 @@ R4_clustered %>%
 
 p <- composite_plot(R4_clustered)
 ggsave(
-  file.path(wd, "fig2b_compound_targets_top5_both_pos_.9.pdf"),
+  file.path(wd, "fig2b_compound_targets_top5_both_pos.pdf"),
   p, width = 22, height = 26
 )
 
@@ -379,7 +384,7 @@ R4 <- R3 %>%
           lspci_id_q
         ) %>%
         arrange(desc(abs(tau))) %>%
-        slice(5) %>%
+        slice_head(n = 5) %>%
         pull("lspci_id_t")
     }
   )
@@ -415,7 +420,7 @@ R4 <- R3 %>%
           lspci_id_q
         ) %>%
         arrange(desc(tau)) %>%
-        slice(5) %>%
+        slice_head(n = 5) %>%
         pull("lspci_id_t")
     }
   )
@@ -438,7 +443,7 @@ ggsave(
   file.path(wd, "fig2b_compound_targets_top5_dge_pos.pdf"),
   p, width = 15, height = 24
 )
-
+ß
 
 library(ggbeeswarm)
 
@@ -705,8 +710,8 @@ fplot_pcl <- function(X) {
     theme_minimal() + theme_bold() +
     geom_tile() +
     # geom_tile(data=filter(X_, as.character(name_q)==as.character(name_t)), color="black", size=1) +
-    scale_fill_gradientn( colors=pal, guide=FALSE, limits=c(-100,100) ) +
-    # exec(scale_fill_gradientn, !!!cmap_nonlinear_colormap, guide = FALSE, limits = c(-100, 100)) +
+    # scale_fill_gradientn( colors=pal, guide=FALSE, limits=c(-100,100) ) +
+    exec(scale_fill_gradientn, !!!cmap_nonlinear_colormap, guide = FALSE, limits = c(-100, 100)) +
     xlab( "CMap Target" ) +
     theme(
       axis.text.y = ggtext::element_markdown()
@@ -768,7 +773,7 @@ R4_pcl <- R3_pcl %>%
         ) %>%
         # arrange(desc(abs(tau))) %>%
         arrange(desc(tau)) %>%
-        slice(3) %>%
+        slice_head(n = 3) %>%
         pull("pert_id")
     }
   )
@@ -790,6 +795,43 @@ p <- composite_plot_pcl(R4_clustered_pcl)
 ggsave(
   file.path(wd, "fig2b_pcl_targets_top3_both_pos.pdf"),
   p, width = 40, height = 40
+)
+
+
+
+R4_pcl <- R3_pcl %>%
+  filter(
+    pert_id %in% {
+      R3_pcl %>%
+        filter(source == "dge") %>%
+        group_by(
+          source,
+          lspci_id_q
+        ) %>%
+        # arrange(desc(abs(tau))) %>%
+        arrange(desc(tau)) %>%
+        slice_head(n = 3) %>%
+        pull("pert_id")
+    }
+  )
+
+R4_clustered_pcl <- R4_pcl %>%
+  drop_na(tau) %>%
+  filter(source == "dge") %>%
+  cluster_mat(target_col = pert_id)
+
+R4_clustered_pcl <- R4_pcl %>%
+  mutate(
+    name_q = factor(name_q, levels = levels(R4_clustered_pcl$name_q)),
+    pert_id = factor(pert_id, levels = levels(R4_clustered_pcl$pert_id))
+  ) %>%
+  drop_na(tau, name_q)
+
+p <- composite_plot_pcl(R4_clustered_pcl)
+
+ggsave(
+  file.path(wd, "fig2b_pcl_targets_top3_dge_pos.pdf"),
+  p, width = 25, height = 40
 )
 
 # ggsave(
@@ -838,3 +880,539 @@ ggsave(
 ## MCF7 query
 
 
+## Isolate the appropriate slice of data
+## Aggregate across multiple entries to compute master similarity score
+R2_mcf7_dge <- dge_gene_sets %>%
+  drop_na(lspci_id) %>%
+  filter(
+    # cell_aggregate_method == "cells_aggregated" | is.na(cell_aggregate_method),
+    replicate_method == "replicates_aggregated",
+    concentration_method == "concentration_aggregated",
+    cells == "MCF7",
+    is.na(stim)
+  ) %>%
+  rename(
+    lspci_id_q = lspci_id, cells_q = cells
+  ) %>%
+  distinct() %>%
+  inner_join(
+    R_cells %>%
+      filter(cell_id == "MCF7") %>%
+      rename(cells_t = cell_id) %>%
+      mutate(
+        name_t = pert_iname
+      ),
+    by = c("gene_set_id" = "gene_set")
+  ) %>%
+  left_join(
+    cmap_meta %>%
+      distinct(pert_id, lspci_id_t = lspci_id),
+    by = "pert_id"
+  ) %>%
+  left_join(
+    compound_names %>%
+      rename(name_q = name),
+    by = c("lspci_id_q" = "lspci_id")
+  )
+
+R2_mcf7_cmap <- R_cmap_mcf7 %>%
+  left_join(
+    compound_names %>%
+      rename(name_q = name),
+    by = c("lspci_id_q" = "lspci_id")
+  ) %>%
+  mutate(
+    cells_q = "MCF7",
+    cells_t = "MCF7",
+    name_t = pert_iname
+  )
+
+R2_mcf7_combined <- bind_rows(
+  l1000 = R2_mcf7_cmap,
+  dge = R2_mcf7_dge,
+  .id = "source"
+) %>%
+  # For some reason, CMap sometimes returns multiple independent connectivities
+  # of the same query and target compound. Probably replicate signatures
+  # on their side?
+  # Aggregating by taking the 33- or 66-percentile, whichever has
+  # higher absolute value. Approach used by CMap to aggregate cell lines
+  # Also aggregates multiple time points for DGE
+  group_by(source, replicate_method, concentration_method, pert_type, lspci_id_q, lspci_id_t, cells_q, cells_t, name_q, name_t) %>%
+  summarize(
+    tau = quantile(tau, c(0.67, 0.33), names = FALSE, na.rm = TRUE) %>%
+      {.[order(abs(.))[2]]},
+    # tau = mean(tau),
+    .groups = "drop"
+  )
+
+# Start off with data where replicates, cells, and concentrations aggregated and
+# using a z-threshold of 0.7
+R3_mcf7 <- R2_mcf7_combined %>%
+  drop_na(lspci_id_t) %>%
+  filter(
+    pert_type == "trt_cp",
+    name_t != "forskolin"
+  )
+  # mutate(
+  #   name_q = str_trunc(name_q, 16, ellipsis = "…"),
+  #   name_t = str_trunc(name_t, 16, ellipsis = "…")
+  # )
+
+
+# Select which drugs to show
+
+R4_mcf7 <- R3_mcf7 %>%
+  filter(
+    lspci_id_t %in% {
+      R3_mcf7 %>%
+        group_by(
+          source,
+          lspci_id_q
+        ) %>%
+        arrange(desc(tau)) %>%
+        slice_head(n = 5) %>%
+        pull("lspci_id_t")
+    }
+  )
+
+R4_mcf7 %>%
+  group_by(source, name_q, name_t) %>%
+  arrange(source, name_q, name_t) %>%
+  filter(n() > 1) %>%
+  filter(source == "dge") %>%
+  ungroup() %>%
+  distinct(source, name_q, time) %>%
+  View()
+
+R4_mcf7 %>%
+  group_by(source, name_q, name_t) %>%
+  arrange(source, name_q, name_t) %>%
+  filter(n() > 1) %>%
+  filter(name_q == "Sigma A6730")
+
+R4_mcf7_clustered <- R4_mcf7 %>%
+  drop_na(tau) %>%
+  filter(source == "dge") %>%
+  cluster_mat()
+
+R4_mcf7_clustered <- R4_mcf7 %>%
+  mutate(
+    name_q = factor(name_q, levels = levels(R4_mcf7_clustered$name_q)),
+    name_t = factor(name_t, levels = levels(R4_mcf7_clustered$name_t))
+  ) %>%
+  drop_na(tau, name_q)
+
+R4_mcf7_clustered %>%
+  arrange(name_q, desc(abs(tau)))
+
+
+## Plotting elements
+pal <- rev(RColorBrewer::brewer.pal(n=7, name="RdBu"))
+etxt <- function(s, ...) {element_text( size = s, face = "bold", ... )}
+theme_bold <- function() {
+  theme(axis.text.x = etxt(12, angle=90, hjust=1, vjust=0.5),
+        axis.text.y = etxt(12), axis.title = etxt(14),
+        legend.text = etxt(12), legend.title = etxt(14),
+        axis.ticks = element_blank(), strip.text = etxt(14))
+}
+
+## Plotting a heatmap of clue hits
+fplot <- function(X) {
+  library(ggtext)
+  X_ <- X %>%
+    arrange(name_q) %>%
+    mutate(
+      name_q_color = paste0(
+        "<span style=\"color:",
+        if_else(
+          as.character(name_q) %in% as.character(name_t),
+          "#ff0000", "#000000"
+        ),
+        "\">",
+        name_q,
+        "</span>"
+      ),
+      across(name_q_color, fct_inorder)
+    )
+  # browser()
+  ggplot( X_, aes(x=name_t, y=name_q_color, fill=tau) ) +
+    theme_minimal() + theme_bold() +
+    geom_tile() +
+    geom_tile(data=filter(X_, as.character(name_q)==as.character(name_t)), color="black", size=1) +
+    scale_fill_gradientn( colors=pal, guide=FALSE, limits=c(-100,100) ) +
+    # exec(scale_fill_gradientn, !!!cmap_nonlinear_colormap, guide = FALSE, limits = c(-100, 100)) +
+    xlab( "CMap Target" ) +
+    theme(
+      axis.text.y = ggtext::element_markdown()
+    )
+}
+
+composite_plot <- function(X) {
+  ## DGE plot
+  gg1 <- fplot( filter(X, source == "dge") ) +
+    scale_x_discrete(position = "top") +
+    # scale_fill_gradientn( colors=pal, name="Tau", limits=c(-100,100) ) +
+    theme(axis.title.x = element_blank(),
+          axis.text.x = element_text(hjust=0, vjust=0.5),
+          plot.margin = margin(r = 0.25, l = 0.25, unit = "in")) +
+    ylab( "3' DGE Query" )
+
+  ## L1000 plot
+  gg2 <- fplot( filter(X, source == "l1000") ) +
+    ylab( "L1000 Query" ) +
+    # scale_fill_gradientn( colors=pal, name="Tau", limits=c(-100,100) ) +
+    # exec(scale_fill_gradientn, !!!cmap_nonlinear_colormap, name = "Tau", limits = c(-100, 100)) +
+    theme(legend.position = "bottom",
+          plot.margin = margin(r = 0.25, l = 0.25, t = .125, unit = "in"))
+  # browser()
+  ## Create the composite plot
+  egg::ggarrange(
+    gg1 + coord_equal(),
+    gg2 + coord_equal(),
+    heights=c(7.5,7), widths = c(7), draw=FALSE
+  )
+}
+
+p <- composite_plot(R4_mcf7_clustered)
+ggsave(
+  file.path(wd, "fig2b_mcf7_queries_compound_targets_top5_both.pdf"),
+  p, width = 22, height = 26
+)
+
+# Only positive Tau
+
+# Select which drugs to show
+R4 <- R3 %>%
+  filter(
+    lspci_id_t %in% {
+      R3 %>%
+        group_by(
+          source,
+          lspci_id_q
+        ) %>%
+        arrange(desc(tau)) %>%
+        slice_head(n = 5) %>%
+        pull("lspci_id_t")
+    }
+  )
+
+R4_clustered <- R4 %>%
+  drop_na(tau) %>%
+  filter(source == "dge") %>%
+  cluster_mat()
+R4_clustered <- R4 %>%
+  mutate(
+    name_q = factor(name_q, levels = levels(R4_clustered$name_q)),
+    name_t = factor(name_t, levels = levels(R4_clustered$name_t))
+  ) %>%
+  drop_na(tau, name_q)
+
+R4_clustered %>%
+  arrange(name_q, desc(abs(tau)))
+
+p <- composite_plot(R4_clustered)
+ggsave(
+  file.path(wd, "fig2b_compound_targets_top5_both_pos.pdf"),
+  p, width = 40, height = 26
+)
+
+
+# Only targets of DGE queries
+R4 <- R3 %>%
+  filter(
+    lspci_id_t %in% {
+      R3 %>%
+        filter(source == "dge") %>%
+        group_by(
+          source,
+          lspci_id_q
+        ) %>%
+        arrange(desc(abs(tau))) %>%
+        slice(5) %>%
+        pull("lspci_id_t")
+    }
+  )
+
+R4_clustered <- R4 %>%
+  filter(source == "dge") %>%
+  cluster_mat()
+R4_clustered <- R4 %>%
+  mutate(
+    name_q = factor(name_q, levels = levels(R4_clustered$name_q)),
+    name_t = factor(name_t, levels = levels(R4_clustered$name_t))
+  ) %>%
+  complete_df()
+
+R4_clustered %>%
+  arrange(name_q, desc(abs(tau)))
+
+p <- composite_plot(R4_clustered)
+ggsave(
+  file.path(wd, "fig2b_compound_targets_top5_dge.pdf"),
+  p, width = 15, height = 24
+)
+
+
+## MCF7 queries PCL
+
+
+## MCF7 query
+
+## Isolate the appropriate slice of data
+## Aggregate across multiple entries to compute master similarity score
+
+R2_mcf7_pcl <- gene_set_meta %>%
+  filter(
+    # cell_aggregate_method == "cells_aggregated" | is.na(cell_aggregate_method),
+    # replicate_method == "replicates_aggregated" | is.na(replicate_method),
+    # concentration_method == "concentration_aggregated" | is.na(concentration_method),
+    replicate_method == "replicates_aggregated" | source == "l1000",
+    concentration_method == "concentration_aggregated" | source == "l1000",
+    (source == "dge" & !cells %in% c(
+      "InMyoFib28085", "rencell"
+    )) | (source == "l1000" & cells == "summary"),
+    cutoff == .7 | source == "dge",
+    is.na(stim) | stim == "control"
+  ) %>%
+  rename(
+    lspci_id_q = lspci_id, cells_q = cells
+  ) %>%
+  distinct() %>%
+  inner_join(
+    R_pcl %>%
+      rename(cells_t = cell_id),
+    by = c("gene_set_id" = "gene_set")
+  ) %>%
+  #   bind_rows(
+  #     filter(., source == "l1000"),
+  #     # Actually didn't perform cell aggregation for dge data... need to do here
+  #     filter(., source == "dge") %>%
+  #       group_by(source, replicate_method, concentration_method, lspci_id_q, pert_id, pert_iname, cells_t) %>%
+  #       summarize(
+  #         tau = quantile(tau, c(0.67, 0.33), names = FALSE, na.rm = TRUE) %>%
+  #           {.[order(abs(.))[2]]},
+  #         # tau = mean(tau),
+  #         cells_q = paste(sort(unique(cells_q)), collapse = "_"),
+  #         .groups = "drop"
+  #       ) %>%
+  #       mutate(cell_aggregate_method = "cells_aggregated")
+  #   )
+  # } %>%
+  # For some reason, CMap sometimes returns multiple independent connectivities
+  # of the same query and target compound. Probably replicate signatures
+  # on their side?
+  # Aggregating by taking the 33- or 66-percentile, whichever has
+  # higher absolute value. Approach used by CMap to aggregate cell lines
+  group_by(source, replicate_method, concentration_method, lspci_id_q, pert_id, pert_iname) %>%
+  summarize(
+    tau = quantile(tau, c(0.67, 0.33), names = FALSE, na.rm = TRUE) %>%
+      {.[order(abs(.))[2]]},
+    # tau = mean(tau),
+    .groups = "drop"
+  ) %>%
+  left_join(
+    compound_names %>%
+      rename(name_q = name),
+    by = c("lspci_id_q" = "lspci_id")
+  )
+
+R2_mcf7_pcl %>%
+  group_by(source, name_q, pert_id) %>%
+  filter(n() > 1) %>%
+  arrange(source, name_q, pert_id)
+
+# Start off with data where replicates, cells, and concentrations aggregated and
+# using a z-threshold of 0.7
+R3_mcf7_pcl <- R2_mcf7_pcl
+  # mutate(
+  #   name_q = str_trunc(name_q, 16, ellipsis = "…"),
+  #   name_t = str_trunc(name_t, 16, ellipsis = "…")
+  # )
+
+
+# Select which drugs to show
+
+R4_mcf7_pcl <- R3_mcf7_pcl %>%
+  filter(
+    pert_id %in% {
+      R3_mcf7_pcl %>%
+        filter(source == "dge") %>%
+        group_by(
+          source,
+          lspci_id_q
+        ) %>%
+        arrange(desc(tau)) %>%
+        slice_head(n = 5) %>%
+        pull("pert_id")
+    }
+  )
+
+R4_mcf7_pcl_clustered <- R4_mcf7_pcl %>%
+  drop_na(tau) %>%
+  filter(source == "dge") %>%
+  cluster_mat(target_col = pert_id)
+
+R4_mcf7_pcl_clustered <- R4_mcf7_pcl %>%
+  mutate(
+    name_q = factor(name_q, levels = levels(R4_mcf7_pcl_clustered$name_q)),
+    pert_id = factor(pert_id, levels = levels(R4_mcf7_pcl_clustered$pert_id))
+  ) %>%
+  drop_na(tau, name_q)
+
+
+
+p <- composite_plot_pcl(R4_mcf7_pcl_clustered)
+
+ggsave(
+  file.path(wd, "fig2b_pcl_targets_mcf7_query_top3_dge_pos_nonlinear.pdf"),
+  p, width = 30, height = 30
+)
+
+
+
+R4_mcf7_pcl <- R3_mcf7_pcl %>%
+  filter(
+    pert_id %in% {
+      R3_mcf7_pcl %>%
+        filter(source == "dge") %>%
+        group_by(
+          source,
+          lspci_id_q
+        ) %>%
+        arrange(desc(tau)) %>%
+        slice_head(n = 5) %>%
+        pull("pert_id")
+    }
+  )
+
+R4_mcf7_pcl_clustered <- R4_mcf7_pcl %>%
+  drop_na(tau) %>%
+  filter(source == "dge") %>%
+  cluster_mat(target_col = pert_id)
+
+R4_mcf7_pcl_clustered <- R4_mcf7_pcl %>%
+  mutate(
+    name_q = factor(name_q, levels = levels(R4_mcf7_pcl_clustered$name_q)),
+    pert_id = factor(pert_id, levels = levels(R4_mcf7_pcl_clustered$pert_id))
+  ) %>%
+  drop_na(tau, name_q)
+
+
+
+p <- composite_plot_pcl(R4_mcf7_pcl_clustered)
+
+ggsave(
+  file.path(wd, "fig2b_pcl_targets_mcf7_query_top3_dge_pos.pdf"),
+  p, width = 30, height = 30
+)
+
+
+## Rencell queries pcl target
+
+
+R2_mcf7_pcl <- gene_set_meta %>%
+  filter(
+    # cell_aggregate_method == "cells_aggregated" | is.na(cell_aggregate_method),
+    # replicate_method == "replicates_aggregated" | is.na(replicate_method),
+    # concentration_method == "concentration_aggregated" | is.na(concentration_method),
+    replicate_method == "replicates_aggregated" | source == "l1000",
+    concentration_method == "concentration_aggregated" | source == "l1000",
+    (source == "dge" & cells %in% c(
+      "rencell"
+    )) | (source == "l1000" & cells == "summary"),
+    cutoff == .7 | source == "dge",
+    is.na(stim) | stim == "control"
+  ) %>%
+  rename(
+    lspci_id_q = lspci_id, cells_q = cells
+  ) %>%
+  distinct() %>%
+  inner_join(
+    R_pcl %>%
+      rename(cells_t = cell_id),
+    by = c("gene_set_id" = "gene_set")
+  ) %>%
+  #   bind_rows(
+  #     filter(., source == "l1000"),
+  #     # Actually didn't perform cell aggregation for dge data... need to do here
+  #     filter(., source == "dge") %>%
+  #       group_by(source, replicate_method, concentration_method, lspci_id_q, pert_id, pert_iname, cells_t) %>%
+  #       summarize(
+  #         tau = quantile(tau, c(0.67, 0.33), names = FALSE, na.rm = TRUE) %>%
+  #           {.[order(abs(.))[2]]},
+  #         # tau = mean(tau),
+  #         cells_q = paste(sort(unique(cells_q)), collapse = "_"),
+  #         .groups = "drop"
+  #       ) %>%
+  #       mutate(cell_aggregate_method = "cells_aggregated")
+  #   )
+  # } %>%
+  # For some reason, CMap sometimes returns multiple independent connectivities
+  # of the same query and target compound. Probably replicate signatures
+  # on their side?
+  # Aggregating by taking the 33- or 66-percentile, whichever has
+  # higher absolute value. Approach used by CMap to aggregate cell lines
+  group_by(source, replicate_method, concentration_method, lspci_id_q, pert_id, pert_iname) %>%
+  summarize(
+    tau = quantile(tau, c(0.67, 0.33), names = FALSE, na.rm = TRUE) %>%
+      {.[order(abs(.))[2]]},
+    # tau = mean(tau),
+    .groups = "drop"
+  ) %>%
+  left_join(
+    compound_names %>%
+      rename(name_q = name),
+    by = c("lspci_id_q" = "lspci_id")
+  )
+
+R2_mcf7_pcl %>%
+  group_by(source, name_q, pert_id) %>%
+  filter(n() > 1) %>%
+  arrange(source, name_q, pert_id)
+
+# Start off with data where replicates, cells, and concentrations aggregated and
+# using a z-threshold of 0.7
+R3_mcf7_pcl <- R2_mcf7_pcl
+  # mutate(
+  #   name_q = str_trunc(name_q, 16, ellipsis = "…"),
+  #   name_t = str_trunc(name_t, 16, ellipsis = "…")
+  # )
+
+
+# Select which drugs to show
+
+R4_mcf7_pcl <- R3_mcf7_pcl %>%
+  filter(
+    pert_id %in% {
+      R3_mcf7_pcl %>%
+        filter(source == "dge") %>%
+        group_by(
+          source,
+          lspci_id_q
+        ) %>%
+        arrange(desc(tau)) %>%
+        slice_head(n = 5) %>%
+        pull("pert_id")
+    }
+  )
+
+R4_mcf7_pcl_clustered <- R4_mcf7_pcl %>%
+  drop_na(tau) %>%
+  filter(source == "dge") %>%
+  cluster_mat(target_col = pert_id)
+
+R4_mcf7_pcl_clustered <- R4_mcf7_pcl %>%
+  mutate(
+    name_q = factor(name_q, levels = levels(R4_mcf7_pcl_clustered$name_q)),
+    pert_id = factor(pert_id, levels = levels(R4_mcf7_pcl_clustered$pert_id))
+  ) %>%
+  drop_na(tau, name_q)
+
+
+p <- composite_plot_pcl(R4_mcf7_pcl_clustered)
+
+ggsave(
+  file.path(wd, "fig2b_pcl_targets_rencell_query_query_top3_dge_pos.pdf"),
+  p, width = 30, height = 30
+)

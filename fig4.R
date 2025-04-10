@@ -8,6 +8,7 @@ library(ggrepel)
 library(fst)
 library(qs)
 library(data.table)
+library(powerjoin)
 
 synapser::synLogin()
 syn <- synExtra::synDownloader("data", .cache = TRUE)
@@ -421,6 +422,14 @@ dose_response_all_plotting <- dose_response_all %>%
     signed_p = -log10(p.value) * if_else(estimate > 0, 1, -1),
     ordered_lspci_id = paste(lspci_id, cells, time) %>%
       factor(levels = .[order(signed_p)])
+  ) %>%
+  power_inner_join(
+    compound_names,
+    by = "lspci_id",
+    check = check_specs(
+      unmatched_keys_left = "warn",
+      duplicate_keys_right = "warn"
+    )
   )
 
 p <- ggplot(
@@ -470,3 +479,49 @@ ggsave(
   width = 4, height = 2
 )
 
+# Plotting odds ratio isntead
+
+
+
+p <- ggplot(
+  dose_response_all_plotting,
+  aes(
+    fct_reorder(ordered_lspci_id, estimate),
+    estimate,
+    fill = p.value < .05
+  )
+) +
+  geom_col() +
+  # geom_text(
+  #   aes(label = name),
+  #   data = ~.x %>%
+  #     filter(ordered_lspci_id == paste(filter(compound_names, name == "PALBOCICLIB")$lspci_id, "MCF7", "24")) %>%
+  #     left_join(
+  #       select(compound_names, lspci_id, name)
+  #     ),
+  #   hjust = "left", vjust = "center", angle = 90,
+  #   nudge_y = 0.2
+  # ) +
+  # geom_text_repel(
+  #   aes(label = name),
+  #   data = ~.x %>%
+  #     left_join(
+  #       select(compound_names, lspci_id, name)
+  #     ) %>%
+  #     mutate(
+  #       name = if_else(
+  #         ordered_lspci_id == paste(filter(compound_names, name == "PALBOCICLIB")$lspci_id, "MCF7", "24"),
+  #         name,
+  #         ""
+  #       )
+  #     ),
+  #   point.padding = 1, box.padding = 1
+  # ) +
+  scale_fill_manual(values = c(`TRUE` = "red", `FALSE` = "grey50"), guide = "none") +
+  # scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  # geom_hline(yintercept = -log10(0.05)) +
+  theme_bw() +
+  theme_bold() +
+  theme(axis.text.x = element_blank()) +
+  labs(x = "Rank ordered drugs", y = "Odds Ratio")
+  # coord_cartesian(expand = FALSE)
